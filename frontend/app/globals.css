@@ -1,92 +1,193 @@
 @import "tailwindcss";
 
-/* Visual language: deep-navy hero panels with large type, pastel workspace tiles, rounded surfaces, pill buttons
-   with a circular arrow. Status is always text + shape, never colour alone. */
+/* Colour roles come from the logo: wordmark navy for identity, the lotus blue petal for actions, green / gold / red
+   petals for state, and the saffron of the diya and linked rings for coordination (overlap) signals. Status is always
+   text + icon, never colour alone. The five-colour stripe mirrors the tagline rule under the logo. */
 :root {
-  --page: #f3f4f9;
+  --page: #f5f7fb;
   --surface: #ffffff;
-  --surface-2: #f7f8fc;
-  --ink: #1d2150;
-  --muted: #5e6487;
-  --rule: #e2e4ef;
-  --navy: #23285a;
-  --navy-2: #30377a;
-  --on-navy: #dfe6ff;
-  --mint: #a9dec4;
-  --mint-ink: #1f5a43;
-  --yellow: #f2de72;
-  --yellow-ink: #6b5a10;
-  --pink: #eac3d9;
-  --pink-ink: #7a2f58;
-  --sky: #a6c4f5;
-  --sky-ink: #23427e;
-  --cream: #fbf5e8;
-  --danger: #b42318;
-  --danger-soft: #fde8e7;
-  --ok: #1f7a4d;
-  --focus: #3d5bd9;
+  --surface-2: #f1f4f9;
+  --surface-3: #e7ecf4;
+  --ink: #12233f;
+  --muted: #5b6b82;
+  --rule: #e1e7ef;
+  --rule-strong: #c9d3e0;
+  --navy: #0b2449;
+  --navy-2: #163a6b;
+  --navy-3: #1f4a85;
+  --on-navy: #dfe8f6;
+  --on-navy-muted: #9fb3d1;
+  --action: #1a6fd1;
+  --action-hover: #155bb0;
+  --action-soft: #eaf2fd;
+  --action-ink: #134a8f;
+  --warn: #a35a00;
+  --warn-soft: #fff4d6;
+  --warn-ink: #7a4300;
+  --danger: #c2161f;
+  --danger-soft: #fde7e8;
+  --danger-ink: #9a1118;
+  --ok: #18803f;
+  --ok-soft: #e1f4e7;
+  --ok-ink: #11612f;
+  --coord: #b04e0b;
+  --coord-soft: #fdeedf;
+  --coord-ink: #9a420a;
+  --gold: #f6b800;
+  --saffron: #e8701c;
+  --focus: #1a6fd1;
+  --shadow: 0 1px 2px rgb(11 36 73 / 0.06), 0 1px 3px rgb(11 36 73 / 0.04);
+  --shadow-lg: 0 12px 32px -10px rgb(11 36 73 / 0.25), 0 2px 6px rgb(11 36 73 / 0.06);
+  --brand-green: #188040;
+  --brand-blue: #1870d0;
+  --brand-orange: #e8701c;
+  --brand-red: #c81820;
+  --brand-yellow: #f6b800;
+  /* Chart categorical slots (lotus colours, validated for CVD separation on white): saffron, blue, green, gold. */
+  --series-1: #e8701c;
+  --series-2: #1a6fd1;
+  --series-3: #18803f;
+  --series-4: #c98500;
+  --series-grid: #e7ecf3;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --page: #14162c;
-    --surface: #1d2042;
-    --surface-2: #232750;
-    --ink: #e8e9f5;
-    --muted: #a5a9c8;
-    --rule: #2f3463;
-    --navy: #0e1030;
-    --navy-2: #262c66;
-    --on-navy: #dfe6ff;
-    --cream: #26284a;
-    --danger: #ff8a80;
-    --danger-soft: #3a1d26;
-    --ok: #7ad3a5;
-    --focus: #8fa8ff;
+    --page: #08162b;
+    --surface: #0f2039;
+    --surface-2: #152a48;
+    --surface-3: #1c3557;
+    --ink: #e3eaf5;
+    --muted: #93a6c2;
+    --rule: #1f3658;
+    --rule-strong: #2d4a73;
+    --navy: #061631;
+    --navy-2: #12305a;
+    --navy-3: #1b4177;
+    --on-navy: #dfe8f6;
+    --on-navy-muted: #8ea4c6;
+    --action: #5fa3f0;
+    --action-hover: #8dbdf5;
+    --action-soft: #14335a;
+    --action-ink: #c4dcfa;
+    --warn: #f6c444;
+    --warn-soft: #3a2c08;
+    --warn-ink: #fbdc85;
+    --danger: #f47a7f;
+    --danger-soft: #3d1419;
+    --danger-ink: #fcc8ca;
+    --ok: #5fcf86;
+    --ok-soft: #0d2e1b;
+    --ok-ink: #b9edca;
+    --coord: #f59a4f;
+    --coord-soft: #3a220d;
+    --coord-ink: #fcd2ad;
+    --focus: #5fa3f0;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+    --shadow-lg: 0 14px 34px -10px rgb(0 0 0 / 0.6);
+    --series-1: #d9661f;
+    --series-2: #3b87e0;
+    --series-3: #17874a;
+    --series-4: #b88e14;
+    --series-grid: #1d3253;
   }
 }
 :root[data-theme="dark"] {
-  --page: #14162c;
-  --surface: #1d2042;
-  --surface-2: #232750;
-  --ink: #e8e9f5;
-  --muted: #a5a9c8;
-  --rule: #2f3463;
-  --navy: #0e1030;
-  --navy-2: #262c66;
-  --cream: #26284a;
-  --danger: #ff8a80;
-  --danger-soft: #3a1d26;
-  --ok: #7ad3a5;
-  --focus: #8fa8ff;
+  --page: #08162b;
+  --surface: #0f2039;
+  --surface-2: #152a48;
+  --surface-3: #1c3557;
+  --ink: #e3eaf5;
+  --muted: #93a6c2;
+  --rule: #1f3658;
+  --rule-strong: #2d4a73;
+  --navy: #061631;
+  --navy-2: #12305a;
+  --navy-3: #1b4177;
+  --on-navy: #dfe8f6;
+  --on-navy-muted: #8ea4c6;
+  --action: #5fa3f0;
+  --action-hover: #8dbdf5;
+  --action-soft: #14335a;
+  --action-ink: #c4dcfa;
+  --warn: #f6c444;
+  --warn-soft: #3a2c08;
+  --warn-ink: #fbdc85;
+  --danger: #f47a7f;
+  --danger-soft: #3d1419;
+  --danger-ink: #fcc8ca;
+  --ok: #5fcf86;
+  --ok-soft: #0d2e1b;
+  --ok-ink: #b9edca;
+  --coord: #f59a4f;
+  --coord-soft: #3a220d;
+  --coord-ink: #fcd2ad;
+  --focus: #5fa3f0;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 14px 34px -10px rgb(0 0 0 / 0.6);
+  --series-1: #d9661f;
+  --series-2: #3b87e0;
+  --series-3: #17874a;
+  --series-4: #b88e14;
+  --series-grid: #1d3253;
 }
 
 @theme inline {
   --color-page: var(--page);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
   --color-navy: var(--navy);
   --color-navy-2: var(--navy-2);
+  --color-navy-3: var(--navy-3);
+  --color-on-navy-muted: var(--on-navy-muted);
+  --color-gold: var(--gold);
+  --color-saffron: var(--saffron);
   --color-on-navy: var(--on-navy);
-  --color-mint: var(--mint);
-  --color-mint-ink: var(--mint-ink);
-  --color-yellow: var(--yellow);
-  --color-yellow-ink: var(--yellow-ink);
-  --color-pink: var(--pink);
-  --color-pink-ink: var(--pink-ink);
-  --color-sky: var(--sky);
-  --color-sky-ink: var(--sky-ink);
-  --color-cream: var(--cream);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-action-soft: var(--action-soft);
+  --color-action-ink: var(--action-ink);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-ink: var(--warn-ink);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-danger-ink: var(--danger-ink);
   --color-ok: var(--ok);
-  --font-sans: var(--font-jakarta), var(--font-deva), ui-sans-serif, system-ui, sans-serif;
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-ink: var(--ok-ink);
+  --color-coord: var(--coord);
+  --color-coord-soft: var(--coord-soft);
+  --color-coord-ink: var(--coord-ink);
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-lg);
+  --font-sans: var(--font-inter), var(--font-deva), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-poppins), var(--font-deva), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
+/* A grid without explicit columns gets one shrinkable column, so wide tables scroll inside their card instead of
+   widening the page on phones. Layered as base, so any grid-cols-* utility still wins. */
+@layer base {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+html {
+  font-size: 100%;
+}
+html[data-text-size="large"] {
+  font-size: 112.5%;
+}
+html[data-text-size="larger"] {
+  font-size: 125%;
+}
 html,
 body {
   background: var(--page);
@@ -95,22 +196,53 @@ body {
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 ::selection {
-  background: var(--sky);
-  color: #142148;
+  background: color-mix(in srgb, var(--action) 25%, transparent);
 }
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+.brand-stripe {
+  background: linear-gradient(
+    90deg,
+    var(--brand-green) 0 20%,
+    var(--brand-blue) 20% 40%,
+    var(--brand-orange) 40% 60%,
+    var(--brand-red) 60% 80%,
+    var(--brand-yellow) 80% 100%
+  );
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%;
+  animation: skeleton 1.4s ease infinite;
+}
+@keyframes skeleton {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     transition: none !important;
     animation: none !important;
   }
+}
+html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  transition: none !important;
+  animation: none !important;
 }

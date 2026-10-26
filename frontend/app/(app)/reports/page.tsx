@@ -1,99 +1,63 @@
 "use client";
 
 import { useState } from "react";
-import { Stagger, StaggerItem } from "@/components/motion";
-import { Badge, Button, Card, ErrorNote, Field, PageHead, Spinner, Table, inputCls } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
-import { fmtDateTime } from "@/lib/format";
+import { BarChart, ChartCard, STATUS_SERIES } from "@/components/charts";
+import { ErrorState, PageSkeleton, Tabs } from "@/components/ui";
+import { ScopeFilter, scopeLabel, useCockpitScope } from "../cockpit/scope";
+import { qs, useApi } from "@/lib/api";
+import { fmtDateTime, pct } from "@/lib/format";
+import { can } from "@/lib/permissions";
+import { useSession } from "@/lib/session";
+import type { Analytics, BreakdownRow, Meta } from "@/lib/types";
+import { CatalogueView } from "@/components/reports";
 
-type Spec = { code: string; title: string; description: string; period: boolean };
-type Snapshot = { id: string; report_code: string; title: string; cut_off: string; checksum: string; created_at: string; scope: Record<string, unknown>; checksum_verified?: boolean;
-  data?: { columns: string[]; rows: (string | number | null)[][]; totals?: (string | number | null)[]; notes?: string[]; period?: { label: string } } };
+type Dim = "unit" | "region" | "category";
+const DIM: Record<Dim, { title: string; param: string; report: string }> = {
+  unit: { title: "Bureau / cell", param: "unit", report: "UNIT_STATUS" },
+  region: { title: "Region", param: "region", report: "REGION_STATUS" },
+  category: { title: "Complaint category", param: "category", report: "STATUS_SUMMARY" },
+};
 
-const TONES = ["bg-yellow text-yellow-ink", "bg-mint text-mint-ink", "bg-pink text-pink-ink", "bg-sky text-sky-ink"];
+function Breakdown({ dim, rows, scope }: { dim: Dim; rows: BreakdownRow[]; scope: Record<string, string> }) {
+  const shown = rows.filter((r) => r.total > 0);
+  return (
+    <ChartCard title={`Status by ${DIM[dim].title.toLowerCase()}`} legend={STATUS_SERIES}
+      description={dim === "category" ? "Top 12 categories by open cases." : "All cases in scope, split by reporting category."}
+      table={{ head: [DIM[dim].title, "Total", "Pending", "Under process", "Disposed", "Transfer in flight", "Overdue", "Within timeline (90 d)"],
+        rows: shown.map((r) => [r.name, r.total, r.pending, r.under_process, r.disposed, r.transferred, r.overdue, pct(r.sla_pct)]) }}
+      footer="Select a bar to open those cases in the register. Switch to Table for overdue counts and timeliness.">
+      <BarChart label={`Cases by ${DIM[dim].title}`} series={STATUS_SERIES}
+        rows={shown.map((r) => ({ key: String(r.key), label: dim === "unit" ? String(r.key) : r.name, sub: dim === "unit" ? r.name : undefined, note: r.overdue ? `${r.overdue} overdue` : undefined,
+          href: `/cases${qs({ ...scope, [DIM[dim].param]: String(r.key) })}`, segments: { pending: r.pending, under_process: r.under_process, disposed: r.disposed, transferred: r.transferred } }))} />
+    </ChartCard>
+  );
+}
 
-export default function ReportsPage() {
-  const { data: cat } = useApi<{ items: Spec[] }>("/reports/catalogue");
-  const { data: snaps, mutate } = useApi<{ items: Snapshot[] }>("/reports");
-  const [period, setPeriod] = useState<"month" | "quarter">("month");
-  const [anchor, setAnchor] = useState(new Date().toISOString().slice(0, 10));
-  const [view, setView] = useState<Snapshot | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<unknown>(null);
-
-  const generate = async (s: Spec) => {
-    setBusy(s.code);
-    setError(null);
-    try {
-      const snap = await api<Snapshot>("/reports", { json: { report_code: s.code, ...(s.period ? { period, anchor } : {}) } });
-      setView({ ...snap, checksum_verified: true });
-      mutate();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(null);
-    }
-  };
-  const open = async (id: string) => setView(await api<Snapshot>(`/reports/${id}`));
-
+export default function ReportsAnalytics() {
+  const { me } = useSession();
+  const { unit, region, query } = useCockpitScope();
+  const [dim, setDim] = useState<Dim>("unit");
+  const allowed = can(me, "cockpit.view");
+  const { data, error, isLoading, mutate } = useApi<Analytics>(allowed ? `/dashboard/analytics${query}` : null);
+  const { data: meta } = useApi<Meta>("/meta");
+  if (!allowed) return <CatalogueView />;
+  if (isLoading) return <PageSkeleton />;
+  if (error || !data) return <ErrorState error={error} onRetry={() => mutate()} />;
+  const scope = { unit, region };
+  const rows = dim === "unit" ? data.by_unit : dim === "region" ? data.by_region : data.by_category;
   return (
     <div className="flex flex-col gap-5">
-      <PageHead title="Reports">
-        Each report is computed once into a frozen snapshot with a SHA-256 checksum, so the numbers discussed in a meeting can be reproduced exactly afterwards.
-      </PageHead>
-      <Card tone="cream" className="grid gap-3 sm:grid-cols-[180px_200px] sm:items-end">
-        <Field label="Period (for period reports)"><select className={inputCls} value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}><option value="month">Month</option><option value="quarter">Quarter</option></select></Field>
-        <Field label="Containing date"><input type="date" className={inputCls} value={anchor} onChange={(e) => setAnchor(e.target.value)} /></Field>
-      </Card>
-      <ErrorNote error={error} />
-      {!cat ? <Spinner /> : (
-        <Stagger className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {cat.items.map((s, i) => (
-            <StaggerItem key={s.code} className="h-full">
-              <div className={`flex h-full flex-col justify-between gap-4 rounded-3xl p-5 ${TONES[i % TONES.length]}`}>
-                <div><p className="font-extrabold leading-tight">{s.title}</p><p className="mt-1 text-xs opacity-80">{s.description}</p></div>
-                <Button onClick={() => generate(s)} busy={busy === s.code} arrow>Generate</Button>
-              </div>
-            </StaggerItem>
-          ))}
-        </Stagger>
-      )}
-
-      {view?.data && (
-        <Card>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="text-lg font-extrabold">{view.title}</h2>
-              <p className="text-xs text-muted">Cut-off {fmtDateTime(view.cut_off)} · scope {JSON.stringify(view.scope).replace(/[{}"]/g, "").replaceAll(",", ", ") || "all units"}</p>
-              <p className="mt-1 break-all font-mono text-[11px] text-muted">SHA-256 {view.checksum} {view.checksum_verified && <Badge tone="ok">✓ verified</Badge>}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(["xlsx", "pdf", "csv"] as const).map((f) => <a key={f} href={`/api/v1/reports/${view.id}/download?fmt=${f}`} className="rounded-full bg-navy px-4 py-2 text-xs font-bold uppercase text-white">{f}</a>)}
-            </div>
-          </div>
-          <div className="mt-4">
-            <Table head={view.data.columns}>
-              {view.data.rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className={j ? "tabular" : "font-semibold"}>{v ?? "—"}</td>)}</tr>)}
-              {view.data.totals && view.data.totals.length > 0 && <tr className="bg-surface-2 font-bold">{view.data.totals.map((v, j) => <td key={j} className="tabular">{v ?? ""}</td>)}</tr>}
-            </Table>
-          </div>
-          {view.data.notes?.map((n) => <p key={n} className="mt-2 text-xs text-muted">{n}</p>)}
-        </Card>
-      )}
-
-      <h2 className="text-lg font-extrabold">Snapshots</h2>
-      {!snaps ? <Spinner /> : (
-        <Table head={["Report", "Cut-off", "Checksum", ""]}>
-          {snaps.items.map((s) => (
-            <tr key={s.id}>
-              <td className="font-semibold">{s.title}</td>
-              <td>{fmtDateTime(s.cut_off)}</td>
-              <td className="font-mono text-[11px] text-muted">{s.checksum.slice(0, 20)}…</td>
-              <td><button className="text-sm font-bold underline" onClick={() => open(s.id)}>Open</button></td>
-            </tr>
-          ))}
-        </Table>
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rule bg-surface px-4 py-3 text-sm shadow-card">
+        <p><span className="text-muted">Scope</span> <b>{scopeLabel(data.scope, meta)}</b> <span className="text-muted">· live data generated {fmtDateTime(data.as_of)}</span></p>
+        <ScopeFilter />
+      </div>
+      <Tabs idBase="dim" label="Break down by" value={dim} onChange={setDim} items={[
+        { value: "unit", label: "By bureau / cell" }, { value: "region", label: "By region" }, { value: "category", label: "By category" },
+      ]} />
+      <div role="tabpanel" id={`dim-panel-${dim}`} aria-labelledby={`dim-tab-${dim}`}>
+        <Breakdown dim={dim} rows={rows} scope={scope} />
+      </div>
+      <p className="text-xs text-muted">Need numbers for a meeting? Generate the matching frozen report (“{DIM[dim].report.replaceAll("_", " ").toLowerCase()}”) in the Report catalogue so they can be reproduced later.</p>
     </div>
   );
 }

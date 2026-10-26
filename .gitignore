@@ -13,3 +13,6 @@ frontend/out/
 *.log
 .DS_Store
 *.tsbuildinfo
+.next-e2e/
+test-results/
+playwright-report/

@@ -8,6 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -17,7 +18,7 @@ from app.modules.auth.deps import current_user
 from app.modules.case import service, views
 from app.modules.coordination import guard
 from app.modules.coordination import service as coord
-from app.modules.policy.roles import CASE_VIEW_ROLES, CurrentUser
+from app.modules.policy.roles import CASE_VIEW_ROLES, CASEWORK_ROLES, CurrentUser
 from app.modules.search.query import CaseFilters
 
 router = APIRouter(tags=["cases"])
@@ -249,6 +250,76 @@ def propose_transfer(
     tr = service.propose_transfer(db, user, case, body.to_unit, body.reason, _version(if_match))
     db.commit()
     return {"transfer_id": str(tr.id), "status": "AWAITING_ACCEPTANCE", "case_status": case.status}
+
+
+_TRANSFERS = """
+SELECT t.id, t.status, t.proposed_at, t.reason, t.decided_at, t.decision_remarks,
+       c.case_no, c.status AS case_status, cat.name AS category,
+       fu.code AS from_unit, tu.code AS to_unit, hu.code AS holding_unit,
+       pu.full_name AS proposed_by, du.full_name AS decided_by,
+       i.name AS inst_name, i.permanent_id
+FROM transfer t
+JOIN case_record c ON c.id = t.case_id
+JOIN category cat ON cat.code = c.category_code
+JOIN unit fu ON fu.id = t.from_unit_id
+JOIN unit tu ON tu.id = t.to_unit_id
+JOIN unit hu ON hu.id = c.holding_unit_id
+JOIN app_user pu ON pu.id = t.proposed_by
+LEFT JOIN app_user du ON du.id = t.decided_by
+LEFT JOIN institution i ON i.id = c.institution_id
+"""
+
+
+@router.get("/transfers")
+def list_transfers(
+    direction: Literal["incoming", "outgoing", "all"] = "all",
+    state: Literal["open", "closed", "all"] = "open",
+    limit: int = Query(default=50, ge=1, le=200),
+    user: CurrentUser = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Custody handshakes involving the caller's unit (oversight roles see every unit). Read-only; sealed cases stay
+    hidden by row-level security on case_record."""
+    user.require(CASE_VIEW_ROLES, "view transfers")
+    where, p = [], {"u": user.unit_id, "n": limit}
+    if direction == "incoming":
+        where.append("t.to_unit_id = :u")
+    elif direction == "outgoing":
+        where.append("t.from_unit_id = :u")
+    elif not user.sees_all_units:
+        where.append("(t.to_unit_id = :u OR t.from_unit_id = :u)")
+    if state == "open":
+        where.append("t.status = 'PROPOSED'")
+    elif state == "closed":
+        where.append("t.status <> 'PROPOSED'")
+    sql = _TRANSFERS + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY t.proposed_at DESC LIMIT :n"
+    rows = db.execute(text(sql), p).all()
+    casework = user.has(*CASEWORK_ROLES)
+    items = []
+    for r in rows:
+        participant = user.unit_code in (r.from_unit, r.to_unit)
+        items.append(
+            {
+                "id": str(r.id),
+                "status": r.status,
+                "case_no": r.case_no,
+                "case_status": r.case_status,
+                "category": r.category,
+                "institution": {"name": r.inst_name, "permanent_id": r.permanent_id} if r.inst_name else None,
+                "from_unit": r.from_unit,
+                "to_unit": r.to_unit,
+                "holding_unit": r.holding_unit,
+                "proposed_by": r.proposed_by,
+                "proposed_at": r.proposed_at.isoformat(),
+                # Reasons and remarks can quote the complaint, so only the two units involved read them.
+                "reason": r.reason if participant else None,
+                "decided_by": r.decided_by,
+                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+                "decision_remarks": r.decision_remarks if participant else None,
+                "can_decide": r.status == "PROPOSED" and r.to_unit == user.unit_code and casework,
+            }
+        )
+    return {"items": items, "as_of": dt.datetime.now(dt.UTC).isoformat()}
 
 
 class TransferDecisionIn(BaseModel):

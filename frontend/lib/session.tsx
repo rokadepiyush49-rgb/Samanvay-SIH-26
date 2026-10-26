@@ -1,56 +1,107 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { api, clearPrivateCache } from "./api";
+import { translate, type Lang } from "./i18n";
 import type { Me } from "./types";
 
-type Lang = "en" | "hi";
+export type TextSize = "default" | "large" | "larger";
+export type Prefs = { lang: Lang; textSize: TextSize; reduceMotion: boolean };
 
-const STRINGS: Record<string, { en: string; hi: string }> = {
-  desk: { en: "Bureau Desk", hi: "ब्यूरो डेस्क" },
-  cases: { en: "All cases", hi: "सभी मामले" },
-  coordination: { en: "Coordination Centre", hi: "समन्वय केंद्र" },
-  institutions: { en: "Institutions", hi: "संस्थान" },
-  cockpit: { en: "Management Cockpit", hi: "प्रबंधन कॉकपिट" },
-  reports: { en: "Reports", hi: "रिपोर्ट" },
-  imports: { en: "Register Importer", hi: "रजिस्टर आयात" },
-  benchmark: { en: "Matching benchmark", hi: "मिलान बेंचमार्क" },
-  admin: { en: "Admin", hi: "प्रशासन" },
-  audit: { en: "Audit", hi: "लेखा परीक्षा" },
-  newCase: { en: "New case", hi: "नया मामला" },
-  search: { en: "Search institution, case no, pid:1-…", hi: "संस्थान, मामला सं., pid:1-… खोजें" },
-  signOut: { en: "Sign out", hi: "साइन आउट" },
-  notifications: { en: "Notifications", hi: "सूचनाएं" },
-  updated: { en: "Updated", hi: "अद्यतन" },
+const DEFAULT_PREFS: Prefs = { lang: "en", textSize: "default", reduceMotion: false };
+
+/** Display preferences are per-browser conveniences (not security-relevant), so localStorage is fine. */
+export function readPrefs(): Prefs {
+  try {
+    const raw = JSON.parse(localStorage.getItem("smv_prefs") ?? "{}") as Partial<Prefs>;
+    const legacy = localStorage.getItem("smv_lang");
+    return {
+      lang: raw.lang === "hi" || legacy === "hi" ? "hi" : "en",
+      textSize: raw.textSize === "large" || raw.textSize === "larger" ? raw.textSize : "default",
+      reduceMotion: raw.reduceMotion === true,
+    };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
+
+export function applyPrefs(p: Prefs): void {
+  const el = document.documentElement;
+  el.lang = p.lang;
+  el.dataset.textSize = p.textSize;
+  el.dataset.reduceMotion = String(p.reduceMotion);
+}
+
+type Ctx = {
+  me: Me;
+  prefs: Prefs;
+  setPrefs: (p: Partial<Prefs>) => void;
+  lang: Lang;
+  setLang: (l: Lang) => void;
+  t: (k: string) => string;
+  /** Components with unsaved edits register here so sign-out can warn first. Returns an unregister function. */
+  registerDirty: (id: string, dirty: boolean) => void;
+  hasUnsaved: () => boolean;
+  signOut: (opts?: { force?: boolean }) => Promise<boolean>;
 };
-
-type Ctx = { me: Me | null; setMe: (m: Me | null) => void; lang: Lang; setLang: (l: Lang) => void; t: (k: string) => string };
 
 const SessionCtx = createContext<Ctx | null>(null);
 
-export function SessionProvider({ children, initial }: { children: ReactNode; initial: Me | null }) {
-  const [me, setMe] = useState<Me | null>(initial);
+export function SessionProvider({ children, initial }: { children: ReactNode; initial: Me }) {
+  const router = useRouter();
   // Rendered only after the session is fetched on the client, so reading storage here cannot cause a hydration mismatch.
-  const [lang, setLangState] = useState<Lang>(() => {
-    try {
-      const saved = localStorage.getItem("smv_lang");
-      return saved === "hi" ? "hi" : "en";
-    } catch {
-      return "en";
-    }
-  });
-  useEffect(() => {
-    document.documentElement.lang = lang;
-  }, [lang]);
-  const setLang = useCallback((l: Lang) => {
-    setLangState(l);
-    try {
-      localStorage.setItem("smv_lang", l);
-    } catch {
-      /* ignore */
-    }
+  const [prefs, setPrefsState] = useState<Prefs>(readPrefs);
+  const dirty = useRef(new Set<string>());
+
+  useEffect(() => applyPrefs(prefs), [prefs]);
+
+  const setPrefs = useCallback((p: Partial<Prefs>) => {
+    setPrefsState((old) => {
+      const next = { ...old, ...p };
+      try {
+        localStorage.setItem("smv_prefs", JSON.stringify(next));
+      } catch {
+        /* storage unavailable: preference lasts for this tab only */
+      }
+      return next;
+    });
   }, []);
-  const t = useCallback((k: string) => STRINGS[k]?.[lang] ?? STRINGS[k]?.en ?? k, [lang]);
-  return <SessionCtx.Provider value={{ me, setMe, lang, setLang, t }}>{children}</SessionCtx.Provider>;
+
+  const registerDirty = useCallback((id: string, isDirty: boolean) => {
+    if (isDirty) dirty.current.add(id);
+    else dirty.current.delete(id);
+  }, []);
+  const hasUnsaved = useCallback(() => dirty.current.size > 0, []);
+
+  const signOut = useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (!opts?.force && dirty.current.size > 0) return false;
+      // Revoke the server session first (the cookie is httpOnly); then drop every cached response.
+      await api("/auth/logout", { method: "POST" }).catch(() => undefined);
+      dirty.current.clear();
+      clearPrivateCache();
+      router.replace("/login?signed_out=1");
+      return true;
+    },
+    [router],
+  );
+
+  const value = useMemo<Ctx>(
+    () => ({
+      me: initial,
+      prefs,
+      setPrefs,
+      lang: prefs.lang,
+      setLang: (lang) => setPrefs({ lang }),
+      t: (k) => translate(k, prefs.lang),
+      registerDirty,
+      hasUnsaved,
+      signOut,
+    }),
+    [initial, prefs, setPrefs, registerDirty, hasUnsaved, signOut],
+  );
+  return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>;
 }
 
 export function useSession(): Ctx {
@@ -59,6 +110,19 @@ export function useSession(): Ctx {
   return ctx;
 }
 
-export function hasRole(me: Me | null, ...roles: string[]): boolean {
-  return !!me && roles.some((r) => me.roles.includes(r));
+/** Marks a form as having unsaved changes: warns on tab close and lets sign-out ask before discarding. */
+export function useUnsavedChanges(id: string, isDirty: boolean): void {
+  const { registerDirty } = useSession();
+  useEffect(() => {
+    registerDirty(id, isDirty);
+    if (!isDirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      registerDirty(id, false);
+    };
+  }, [id, isDirty, registerDirty]);
 }
+
+export { hasRole } from "./permissions";

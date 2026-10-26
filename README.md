@@ -12,8 +12,8 @@ One case ledger for the Regulation Bureau, PGRC, other bureaus and Regional Offi
 - **Action Conflict Guard** — before a show-cause notice, committee visit, hearing notice, letter or closure, the officer sees other units' open matters and records a choice.
 - Working-day SLA timers (DARPG 21-day CPGRAMS rule with interim-reply prompt), Bureau Desk, Management Cockpit with drill-down, SLA what-if simulator, Institution 360, Register Importer, frozen checksummed reports (XLSX / PDF / CSV), hash-chained audit with signed checkpoints, three-tier need-to-know access enforced in the API **and** by PostgreSQL row-level security.
 
-All data in this repository is **synthetic**. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/TECH_STACK.md](docs/TECH_STACK.md)
-and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+All data in this repository is **synthetic**. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/TECH_STACK.md](docs/TECH_STACK.md),
+[docs/FRONTEND.md](docs/FRONTEND.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
 
 ## Run it locally (no Docker)
 
@@ -80,8 +80,15 @@ cd backend && uv run ruff check app tests migrations && uv run python -m app.ml.
 ```
 
 ```bash
-cd frontend && pnpm lint && pnpm typecheck && pnpm build
+cd frontend && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
+
+```bash
+cd frontend && pnpm e2e
+```
+
+`pnpm e2e` runs the browser journeys against its own API and web server (ports 8001 / 3001) and a throwaway copy of the
+demo database (`samanvay_e2e`); see [docs/FRONTEND.md](docs/FRONTEND.md).
 
 The backend tests build a separate `samanvay_test` database from the real migrations (row-level security is part of what is tested).
 
@@ -89,7 +96,7 @@ The backend tests build a separate `samanvay_test` database from the real migrat
 
 ```
 backend/   FastAPI modular monolith (app/modules/*), Alembic migrations (schema, RLS, reference data), worker, tests
-frontend/  Next.js 16 app (role workspaces), Tailwind 4, Motion
+frontend/  Next.js 16 app (role workspaces), Tailwind 4, Radix, Motion; tests/ (Vitest) and e2e/ (Playwright)
 ml/        benchmark results and labels (kept outside the application database)
 infra/     docker-compose stack, Postgres role bootstrap
 scripts/   env generation, DB bootstrap/reset, native dev runner

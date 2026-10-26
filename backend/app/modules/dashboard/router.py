@@ -10,7 +10,7 @@ import datetime as dt
 import statistics
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -247,6 +247,107 @@ def summary(
             }
             for h in health
         ],
+    }
+
+
+@router.get("/dashboard/analytics")
+def analytics(
+    unit: str | None = None,
+    region: int | None = None,
+    months: int = Query(default=12, ge=3, le=24),
+    user: CurrentUser = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Breakdowns behind the cockpit charts: monthly received / disposed, and status by unit, region and category.
+    Same scoping as the summary, so every bar can drill down to /cases with the returned filters."""
+    user.require(MANAGEMENT_ROLES, "open the cockpit")
+    where, p, label = _scope(db, user, unit, region)
+    today = today_ist()
+    start = (today.replace(day=1) - dt.timedelta(days=31 * (months - 1))).replace(day=1)
+    p.update(
+        {
+            "pending": fsm.PS_BUCKETS["pending"],
+            "under": fsm.PS_BUCKETS["under_process"],
+            "terminal": list(fsm.TERMINAL),
+            "today": today,
+            "start": start,
+            "window": today - dt.timedelta(days=90),
+        }
+    )
+    base = f"FROM case_record c JOIN unit u ON u.id = c.holding_unit_id WHERE {where}"
+    buckets = """
+        count(*) AS total,
+        count(*) FILTER (WHERE c.status = ANY(:pending)) AS pending,
+        count(*) FILTER (WHERE c.status = ANY(:under)) AS under_process,
+        count(*) FILTER (WHERE c.status = 'TRANSFER_PROPOSED') AS transferred,
+        count(*) FILTER (WHERE c.status = 'DISPOSED') AS disposed,
+        count(*) FILTER (WHERE c.status <> ALL(:terminal) AND c.expected_disposal < :today) AS overdue,
+        count(*) FILTER (WHERE c.status = 'DISPOSED' AND c.disposed_on >= :window) AS disposed_90,
+        count(*) FILTER (WHERE c.status = 'DISPOSED' AND c.disposed_on >= :window
+                         AND c.disposed_on <= c.expected_disposal) AS on_time_90"""
+
+    def bucket_row(r) -> dict:
+        return {
+            "total": r.total,
+            "pending": r.pending,
+            "under_process": r.under_process,
+            "transferred": r.transferred,
+            "disposed": r.disposed,
+            "overdue": r.overdue,
+            "sla_pct": round(100 * r.on_time_90 / r.disposed_90, 1) if r.disposed_90 else None,
+            "disposed_90": r.disposed_90,
+        }
+
+    received = dict(
+        db.execute(
+            text(
+                f"SELECT date_trunc('month', c.received_on)::date AS m, count(*) {base} "
+                "AND c.received_on >= :start GROUP BY 1"
+            ),
+            p,
+        ).all()
+    )
+    disposed = {
+        r.m: (r.n, r.on_time)
+        for r in db.execute(
+            text(
+                f"SELECT date_trunc('month', c.disposed_on)::date AS m, count(*) AS n, "
+                f"count(*) FILTER (WHERE c.disposed_on <= c.expected_disposal) AS on_time {base} "
+                "AND c.status = 'DISPOSED' AND c.disposed_on >= :start GROUP BY 1"
+            ),
+            p,
+        ).all()
+    }
+    trend, m = [], start
+    while m <= today:
+        n, on_time = disposed.get(m, (0, 0))
+        trend.append({"month": m.isoformat(), "received": received.get(m, 0), "disposed": n, "on_time": on_time})
+        m = dt.date(m.year + (m.month == 12), m.month % 12 + 1, 1)
+
+    by_unit = db.execute(text(f"SELECT u.code AS key, u.name AS name, {buckets} {base} GROUP BY u.code, u.name"), p)
+    region_base = base.replace("WHERE", "JOIN region r ON r.id = c.region_id WHERE", 1)
+    by_region = db.execute(
+        text(f"SELECT r.id AS key, r.name AS name, {buckets} {region_base} GROUP BY r.id, r.name"), p
+    )
+    by_category = db.execute(
+        text(
+            f"SELECT cat.code AS key, cat.name AS name, {buckets} "
+            f"{base.replace('WHERE', 'JOIN category cat ON cat.code = c.category_code WHERE', 1)} "
+            "GROUP BY cat.code, cat.name ORDER BY count(*) FILTER (WHERE c.status <> ALL(:terminal)) DESC LIMIT 12"
+        ),
+        p,
+    )
+    return {
+        "scope": label,
+        "as_of": dt.datetime.now(dt.UTC).isoformat(),
+        "trend": trend,
+        "by_unit": sorted(
+            ({"key": r.key, "name": r.name, **bucket_row(r)} for r in by_unit), key=lambda x: -x["total"]
+        ),
+        "by_region": sorted(
+            ({"key": r.key, "name": r.name, **bucket_row(r)} for r in by_region), key=lambda x: -x["total"]
+        ),
+        "by_category": [{"key": r.key, "name": r.name, **bucket_row(r)} for r in by_category],
     }
 
 

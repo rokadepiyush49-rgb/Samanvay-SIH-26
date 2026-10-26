@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: 26 Oct 2026. Source of truth for scope: the *Samanvay Solution Blueprint* artifact (31 sections, 51 requirements).
+Last updated: 26 Oct 2026 (frontend rebuild in the afternoon). Source of truth for scope: the *Samanvay Solution Blueprint* artifact (31 sections, 51 requirements).
 Status values: **Completed**, **In progress**, **Not started**, **Blocked**. "Completed" means implemented, exercised by an
 automated test or by the browser walkthrough below, and not a mock.
 
@@ -8,10 +8,12 @@ automated test or by the browser walkthrough below, and not a mock.
 
 | Check | Result |
 |---|---|
-| Backend tests (`uv run pytest`, real PostgreSQL 17, fresh `samanvay_test` DB from migrations) | **46 passed**, 0 failed |
+| Backend tests (`uv run pytest`, real PostgreSQL 17, fresh `samanvay_test` DB from migrations) | **48 passed**, 0 failed (26 Oct, after the frontend rebuild: +2 for the transfers list and cockpit analytics feeds) |
 | Backend lint / format (`ruff check`, `ruff format --check`) | clean |
 | Frontend `tsc --noEmit`, `eslint .` | 0 errors, 0 warnings |
-| Frontend `next build` (production) | succeeds, 17 routes |
+| Frontend unit tests (`pnpm test`, Vitest) | **23 passed** |
+| Frontend browser journeys (`pnpm e2e`, Playwright + Chrome, real API on a copy of the demo DB) | **12 passed** — sign-in per role, sign-out, search, filter persistence, overlap evidence, two-party decision, transfer handshake, Action Conflict Guard, restricted roles, loading / empty / error / session-expiry |
+| Frontend `next build` (production) | succeeds, 31 routes |
 | Demo seed (`app.ml.seed`) | 3,005 cases, 400 institutions, 802 overlap proposals, 198 coordination cards, ~100 s |
 | Matching benchmark, n-gram backend (default) | Samanvay P 0.896 / R 0.807 / F1 0.849 vs B1 fuzzy-name F1 0.589, B0 0.452 |
 | Matching benchmark, multilingual embeddings | P 0.904 / R 0.813 / F1 0.856; Hindi–English recall 0.35 (n-gram 0.29) |
@@ -40,7 +42,7 @@ all other overlap kinds are ≥ 0.93. Precision meets the 0.80 target.
 | 11 | Documents: size limit, magic bytes, scan, hash, tiered download | Completed (dev scanner) | `documents/*` | `test_document_upload_scan_hash_and_tiered_download` | `SCANNER=builtin` detects EICAR only; ClamAV (`clamd`) path written but not exercised here. Download watermarking not built. |
 | 12 | RBAC + ABAC tiers + PostgreSQL RLS, sealed categories, reveal-with-reason | Completed | migration `0001` (RLS functions/policies, grants), `policy/roles.py`, `case/views.py` | `test_access_tiers` (5 tests incl. raw-SQL RLS bypass attempt) | Role matrix covered by targeted tests, not the full 120-case matrix. Time-boxed access grants exist in the schema and RLS but have no UI/API to issue them yet. |
 | 13 | Hash-chained audit, Ed25519-signed Merkle checkpoints, verifier, insert-only roles | Completed | `audit/chain.py`, `audit/router.py` | `test_audit_chain_verifies_and_detects_tampering` | Signing key from env; production should hold it in a KMS/HSM. RFC 3161 timestamping not built. |
-| 14 | Accessibility and Hindi | In progress | `frontend/*`, `lib/session.tsx` | `next/core-web-vitals` lint rules only | Hindi strings for navigation only; status always text + shape; keyboard focus styles; reduced-motion respected. axe-core and screen-reader pass not run. |
+| 14 | Accessibility and Hindi | In progress | `frontend/*`, `lib/i18n.ts`, `lib/session.tsx` | lint rules, Playwright journeys use role/label queries | Hindi for navigation, titles and common actions; status always icon + text; labelled fields with error messages; ARIA tabs with arrow keys; Radix dialogs manage focus; skip link; text-size and reduce-motion preferences; no page-level horizontal overflow at 375 px on the pages checked. axe-core and a screen-reader pass not run. |
 | 15 | Bounded LLM agents, breach-risk model, complainant lookup | Not started | — | — | Optional by design; the core never depends on them. |
 
 ## Other work items
@@ -49,7 +51,8 @@ all other overlap kinds are ≥ 0.93. Precision meets the 0.80 target.
 |---|---|---|
 | Synthetic generator + benchmark harness + labels outside DB | Completed | `backend/app/ml/synthetic.py`, `benchmark.py`; results in `ml/benchmark/` |
 | Demo seed with story cases and sample import files | Completed | `backend/app/ml/seed.py`, `samples/` |
-| Frontend design system (navy hero, pastel tiles, pill buttons, Motion) | Completed | `frontend/components/ui.tsx`, `icons.tsx`, `motion.tsx` |
+| Frontend rebuild: logo-derived design system, grouped navigation, one page per workspace with tabs, Worklist / Transfers / Notifications / Settings pages, cockpit and reports split into sections | Completed | See docs/FRONTEND.md. Replaces the earlier pastel-tile style. |
+| Frontend unit and browser tests | Completed | `frontend/tests/`, `frontend/e2e/`, `scripts/e2e_db.sh` |
 | Docker images and Compose stack | In progress | Written and config-validated; not built (no Docker daemon) |
 | CI (GitHub Actions: ruff, pytest with Postgres, benchmark, web lint/typecheck/build, gitleaks) | In progress | Written; not executed |
 | OIDC / Parichay SSO | Not started | Local Argon2 accounts with revocable sessions today |

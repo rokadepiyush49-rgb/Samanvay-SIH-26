@@ -1,232 +1,202 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { ArrowLeftRight, CheckCircle2, Undo2 } from "lucide-react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { api, useApi } from "@/lib/api";
-import type { Meta } from "@/lib/types";
-import { IconLock, IconStop } from "./icons";
-import { Badge, Button, ErrorNote, Field, Modal, Spinner, TypeBadge, inputCls, cx } from "./ui";
+import {
+  actionSchema, noteSchema, returnTransferSchema, transferSchema, type ActionForm, type NoteForm, type ReturnTransferForm, type TransferForm,
+} from "@/lib/schemas";
+import { useUnsavedChanges } from "@/lib/session";
+import type { AllowedAction, Meta } from "@/lib/types";
+import { Button, ErrorNote, Field, Modal, cx, fieldA11y, inputCls } from "./ui";
 
-export type AllowedAction = { action: string; label: string; to_status: string; requires_remarks: boolean; consequential: boolean };
-
-type Guard = {
-  guard_check_id: string;
-  action: string;
-  result: "NO_CONFLICT" | "COORDINATION_SUGGESTED" | "COORDINATED";
-  other_matters: { case_no: string; unit_code: string; status_label: string; category: string; link_type: string; probability: number | null; decided: boolean; coordination_code: string | null; lead_unit: string | null; decision: string | null }[];
-  restricted_matter_exists: boolean;
-  restricted_note: string | null;
-  fallback: boolean;
-  fallback_note: string | null;
-  choices: string[];
-};
-
-/** Plain state-machine action: remarks when required, optional next action. */
+/** Plain state-machine action (not consequential): remarks when required, optional next action. */
 export function ActionDialog({ caseNo, version, action, onClose, onDone }: { caseNo: string; version: number; action: AllowedAction | null; onClose: () => void; onDone: () => void }) {
-  const [remarks, setRemarks] = useState("");
-  const [nextAction, setNextAction] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
+  const { register, handleSubmit, formState: { errors, isSubmitting, isDirty } } = useForm<ActionForm>({
+    resolver: zodResolver(actionSchema(!!action?.requires_remarks)), defaultValues: { remarks: "", next_action: "", next_action_due: "" },
+  });
+  useUnsavedChanges(`action-${caseNo}`, isDirty);
   if (!action) return null;
-  const go = async () => {
-    setBusy(true);
-    try {
-      await api(`/cases/${caseNo}/actions`, { json: { action: action.action, remarks: remarks || null, next_action: nextAction || undefined }, headers: { "if-match": String(version) } });
-      onDone();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal open onClose={onClose} title={action.label}>
-      <div className="flex flex-col gap-4">
-        <p className="text-sm text-muted">Moves the case to <b>{action.to_status.replaceAll("_", " ").toLowerCase()}</b>. The entry is added to the timeline and the audit chain.</p>
-        <Field label="Remarks" required={action.requires_remarks}><textarea className={cx(inputCls, "min-h-24")} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></Field>
-        <Field label="Next action (optional)"><input className={inputCls} value={nextAction} onChange={(e) => setNextAction(e.target.value)} /></Field>
-        <ErrorNote error={error} />
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button busy={busy} onClick={go} disabled={action.requires_remarks && !remarks.trim()}>Record action</Button></div>
-      </div>
-    </Modal>
-  );
-}
-
-/** Action Conflict Guard (wow factor W1): runs before every consequential action and records the officer's choice. */
-export function GuardDialog({ caseNo, action, onClose, onDone }: { caseNo: string; action: AllowedAction | null; onClose: () => void; onDone: (msg: string) => void }) {
-  const [guard, setGuard] = useState<Guard | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [remarks, setRemarks] = useState("");
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [opened, setOpened] = useState<string[] | null>(null);
-
-  // The parent remounts this dialog (key) for every new action, so state starts fresh each time.
-  useEffect(() => {
-    if (!action) return;
-    api<Guard>(`/cases/${caseNo}/guard-check`, { json: { action_type: action.action } }).then(setGuard).catch(setError);
-  }, [action, caseNo]);
-  if (!action) return null;
-
-  const proceed = async (choice: "PROCEED" | "PROCEED_AND_NOTIFY") => {
-    if (!guard) return;
-    setBusy(choice);
+  const submit = handleSubmit(async (v) => {
     setError(null);
     try {
-      await api(`/cases/${caseNo}/actions`, { json: { action: action.action, remarks, guard_check_id: guard.guard_check_id, guard_choice: choice, guard_reason: reason || null } });
-      onDone(choice === "PROCEED_AND_NOTIFY" ? `${action.label} recorded; the other units have been notified.` : `${action.label} recorded.`);
+      await api(`/cases/${caseNo}/actions`, {
+        json: { action: action.action, remarks: v.remarks || null, next_action: v.next_action || undefined, next_action_due: v.next_action_due || undefined },
+        headers: { "if-match": String(version) },
+      });
+      onDone();
     } catch (e) {
       setError(e);
-    } finally {
-      setBusy(null);
     }
-  };
-  const choose = async (choice: "OPEN_COORDINATION" | "CANCEL") => {
-    if (!guard) return;
-    setBusy(choice);
-    try {
-      const out = await api<{ coordinations: string[] }>(`/guard-checks/${guard.guard_check_id}/choice`, { json: { choice, reason: reason || null } });
-      if (choice === "CANCEL") onClose();
-      else setOpened(out.coordinations);
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const conflict = guard?.result === "COORDINATION_SUGGESTED";
+  });
   return (
-    <Modal open onClose={onClose} title={`Action Conflict Guard · ${action.label}`} wide>
-      {!guard && !error && <Spinner label="Checking other units' matters on this institution…" />}
-      <ErrorNote error={error} />
-      {guard && (
-        <div className="flex flex-col gap-4">
-          <div className={cx("flex items-start gap-3 rounded-2xl p-4", conflict ? "bg-pink text-pink-ink" : "bg-mint text-mint-ink")}>
-            {conflict && <IconStop size={22} className="mt-0.5 shrink-0" />}
-            <div>
-              <p className="font-bold">
-                {guard.result === "NO_CONFLICT" && "No open matters in other units. You can proceed."}
-                {guard.result === "COORDINATED" && "Other units' matters exist, and coordination has been decided."}
-                {conflict && "Potential Overlapping Cases – Coordination Required"}
-              </p>
-              {conflict && <p className="text-sm">Another unit holds an open matter on this institution that has not been jointly decided. Coordinate first, or record why this cannot wait.</p>}
-            </div>
-          </div>
-          {guard.other_matters.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {guard.other_matters.map((m) => (
-                <li key={m.case_no} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-rule bg-surface-2 px-4 py-3 text-sm">
-                  <span>
-                    <span className="font-mono font-bold">{m.case_no}</span> · <b>{m.unit_code}</b> · {m.status_label}
-                    <span className="block text-xs text-muted">{m.category}{m.coordination_code ? ` · ${m.coordination_code}` : ""}{m.lead_unit ? ` · ${m.lead_unit} leads` : ""}</span>
-                  </span>
-                  <span className="flex flex-wrap items-center gap-2">
-                    <TypeBadge type={m.link_type} prob={m.probability ?? undefined} />
-                    {m.decided ? <Badge tone="ok">✓ decided</Badge> : <Badge tone="danger">● undecided</Badge>}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {guard.restricted_note && <p className="flex items-center gap-2 rounded-2xl bg-cream px-4 py-3 text-sm font-semibold"><IconLock size={16} />{guard.restricted_note}</p>}
-          {guard.fallback_note && <p className="text-xs text-muted">{guard.fallback_note}</p>}
-
-          {opened ? (
-            <div className="rounded-2xl bg-sky p-4 text-sm text-sky-ink">
-              <p className="font-bold">Coordination opened. The action was not taken.</p>
-              <p className="mt-1">{opened.length ? opened.map((c) => <Link key={c} href={`/coordination/${c}`} className="mr-2 font-mono font-bold underline">{c}</Link>) : "Existing coordination cards cover these matters."}</p>
-            </div>
-          ) : (
-            <>
-              <Field label="Remarks for the action" required={action.requires_remarks}><textarea className={cx(inputCls, "min-h-20")} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></Field>
-              {conflict && <Field label="Reason for proceeding before coordination" hint="Mandatory to proceed; shown to the other unit and kept in the audit chain."><input className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. statutory deadline expires today" /></Field>}
-              <div className="flex flex-wrap justify-end gap-2">
-                {guard.choices.includes("CANCEL") && <Button variant="ghost" busy={busy === "CANCEL"} onClick={() => choose("CANCEL")}>Cancel action</Button>}
-                {guard.choices.includes("OPEN_COORDINATION") && <Button variant="light" busy={busy === "OPEN_COORDINATION"} onClick={() => choose("OPEN_COORDINATION")}>Coordinate first</Button>}
-                {guard.choices.includes("PROCEED_AND_NOTIFY") && (
-                  <Button variant="danger" busy={busy === "PROCEED_AND_NOTIFY"} disabled={reason.trim().length < 10 || (action.requires_remarks && !remarks.trim())} onClick={() => proceed("PROCEED_AND_NOTIFY")}>Proceed and notify</Button>
-                )}
-                {guard.choices.includes("PROCEED") && (
-                  <Button busy={busy === "PROCEED"} disabled={action.requires_remarks && !remarks.trim()} onClick={() => proceed("PROCEED")} arrow>Proceed</Button>
-                )}
-              </div>
-            </>
-          )}
+    <Modal open onClose={onClose} title={action.label} description={`Moves the case to “${action.to_status.replaceAll("_", " ").toLowerCase()}”. The entry is added to the timeline and the audit chain.`}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" form="action-form" busy={isSubmitting}>Record action</Button></>}>
+      <form id="action-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
+        <Field id="a-remarks" label="Remarks" required={action.requires_remarks} error={errors.remarks?.message}>
+          <textarea {...register("remarks")} {...fieldA11y("a-remarks", errors.remarks?.message)} className={cx(inputCls, "min-h-24")} />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px]">
+          <Field id="a-next" label="Next action (optional)"><input {...register("next_action")} id="a-next" className={inputCls} placeholder="e.g. Await institution's reply" /></Field>
+          <Field id="a-due" label="Next action due"><input {...register("next_action_due")} id="a-due" type="date" className={inputCls} /></Field>
         </div>
-      )}
+        <ErrorNote error={error} />
+      </form>
     </Modal>
   );
 }
 
-export function TransferDialog({ caseNo, version, holder, open, onClose, onDone }: { caseNo: string; version: number; holder: string; open: boolean; onClose: () => void; onDone: () => void }) {
+export function TransferDialog({ caseNo, version, holder, open, onClose, onDone }: { caseNo: string; version: number; holder: string; open: boolean; onClose: () => void; onDone: (to: string) => void }) {
   const { data: meta } = useApi<Meta>(open ? "/meta" : null);
-  const [unit, setUnit] = useState("");
-  const [reason, setReason] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const go = async () => {
-    setBusy(true);
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } = useForm<TransferForm>({ resolver: zodResolver(transferSchema), defaultValues: { to_unit: "", reason: "" } });
+  useUnsavedChanges(`transfer-${caseNo}`, open && isDirty);
+  const close = () => { reset(); setError(null); onClose(); };
+  const submit = handleSubmit(async (v) => {
+    setError(null);
     try {
-      await api(`/cases/${caseNo}/transfers`, { json: { to_unit: unit, reason }, headers: { "if-match": String(version) } });
-      onDone();
+      await api(`/cases/${caseNo}/transfers`, { json: v, headers: { "if-match": String(version) } });
+      reset();
+      onDone(v.to_unit);
     } catch (e) {
       setError(e);
-    } finally {
-      setBusy(false);
     }
-  };
+  });
   return (
-    <Modal open={open} onClose={onClose} title="Propose transfer">
-      <div className="flex flex-col gap-4">
-        <p className="text-sm text-muted">Custody handshake: the case stays with {holder} until the receiving unit accepts it (reminder after 2 working days, escalation after 5).</p>
-        <Field label="Transfer to" required>
-          <select className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)}>
+    <Modal open={open} onClose={close} title="Propose transfer"
+      description={`Custody handshake: the case stays with ${holder} until the receiving unit accepts it. Reminder after 2 working days, escalation after 5.`}
+      footer={<><Button variant="ghost" onClick={close}>Cancel</Button><Button type="submit" form="transfer-form" busy={isSubmitting} icon={<ArrowLeftRight size={15} aria-hidden />}>Send for acceptance</Button></>}>
+      <form id="transfer-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
+        <Field id="t-unit" label="Receiving unit" required error={errors.to_unit?.message}>
+          <select {...register("to_unit")} {...fieldA11y("t-unit", errors.to_unit?.message)} className={inputCls}>
             <option value="">Choose a unit</option>
             {meta?.units.filter((u) => u.code !== holder).map((u) => <option key={u.code} value={u.code}>{u.code} — {u.name}</option>)}
           </select>
         </Field>
-        <Field label="Reason" required><textarea className={cx(inputCls, "min-h-20")} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <Field id="t-reason" label="Reason for transfer" required error={errors.reason?.message} hint="The receiving unit reads this before accepting.">
+          <textarea {...register("reason")} {...fieldA11y("t-reason", errors.reason?.message, true)} className={cx(inputCls, "min-h-24")} />
+        </Field>
         <ErrorNote error={error} />
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button busy={busy} disabled={!unit || reason.trim().length < 3} onClick={go}>Send for acceptance</Button></div>
-      </div>
+      </form>
     </Modal>
   );
 }
 
-export function NoteDialog({ caseNo, open, onClose, onDone, interim }: { caseNo: string; open: boolean; onClose: () => void; onDone: () => void; interim?: boolean }) {
-  const [kind, setKind] = useState<"NOTE" | "INTERIM_REPLY_SENT" | "NEXT_ACTION">(interim ? "INTERIM_REPLY_SENT" : "NOTE");
-  const [remarks, setRemarks] = useState("");
-  const [nextAction, setNextAction] = useState("");
-  const [due, setDue] = useState("");
+/** Accept (optional remarks) or return (reason required) a proposed transfer. The case moves only when the API confirms. */
+export function TransferDecisionDialog({ transfer, mode, onClose, onDone }:
+  { transfer: { id: string; case_no: string; from_unit: string; to_unit: string } | null; mode: "accept" | "return"; onClose: () => void; onDone: (msg: string) => void }) {
   const [error, setError] = useState<unknown>(null);
-  const go = async () => {
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<ReturnTransferForm>({
+    resolver: mode === "return" ? zodResolver(returnTransferSchema) : undefined, defaultValues: { remarks: "" },
+  });
+  if (!transfer) return null;
+  const submit = handleSubmit(async (v) => {
+    setError(null);
     try {
-      await api(`/cases/${caseNo}/notes`, { json: { kind, remarks, next_action: nextAction || undefined, next_action_due: due || undefined } });
-      setRemarks("");
+      const out = await api<{ status: string; case_no: string }>(`/transfers/${transfer.id}/${mode}`, { json: { remarks: v.remarks || null } });
+      onDone(mode === "accept" ? `${out.case_no} accepted. Custody is now with ${transfer.to_unit}.` : `${out.case_no} returned to ${transfer.from_unit} with your reason.`);
+    } catch (e) {
+      setError(e);
+    }
+  });
+  return (
+    <Modal open onClose={onClose} size="sm"
+      title={mode === "accept" ? `Accept ${transfer.case_no}?` : `Return ${transfer.case_no}?`}
+      description={mode === "accept"
+        ? `Your unit (${transfer.to_unit}) becomes the custodian and the case is assigned to an officer. This is recorded in both units' history.`
+        : `Custody stays with ${transfer.from_unit}. The case returns to its previous status and ${transfer.from_unit} sees your reason.`}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button type="submit" form="td-form" busy={isSubmitting} variant={mode === "accept" ? "primary" : "danger"} icon={mode === "accept" ? <CheckCircle2 size={15} aria-hidden /> : <Undo2 size={15} aria-hidden />}>
+          {mode === "accept" ? "Accept transfer" : "Return transfer"}
+        </Button></>}>
+      <form id="td-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
+        <Field id="td-remarks" label={mode === "accept" ? "Remarks (optional)" : "Reason for returning"} required={mode === "return"} error={errors.remarks?.message}>
+          <textarea {...register("remarks")} {...fieldA11y("td-remarks", errors.remarks?.message)} className={cx(inputCls, "min-h-20")} />
+        </Field>
+        <ErrorNote error={error} />
+      </form>
+    </Modal>
+  );
+}
+
+export function NoteDialog({ caseNo, open, onClose, onDone }: { caseNo: string; open: boolean; onClose: () => void; onDone: () => void }) {
+  const [error, setError] = useState<unknown>(null);
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } = useForm<NoteForm>({
+    resolver: zodResolver(noteSchema), defaultValues: { kind: "NOTE", remarks: "", next_action: "", next_action_due: "" },
+  });
+  useUnsavedChanges(`note-${caseNo}`, open && isDirty);
+  const close = () => { reset(); setError(null); onClose(); };
+  const submit = handleSubmit(async (v) => {
+    setError(null);
+    try {
+      await api(`/cases/${caseNo}/notes`, { json: { ...v, next_action: v.next_action || undefined, next_action_due: v.next_action_due || undefined } });
+      reset();
       onDone();
     } catch (e) {
       setError(e);
     }
-  };
+  });
   return (
-    <Modal open={open} onClose={onClose} title="Add to the case file">
-      <div className="flex flex-col gap-4">
-        <Field label="Entry type">
-          <select className={inputCls} value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+    <Modal open={open} onClose={close} title="Add to the case file"
+      footer={<><Button variant="ghost" onClick={close}>Cancel</Button><Button type="submit" form="note-form" busy={isSubmitting}>Save entry</Button></>}>
+      <form id="note-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
+        <Field id="n-kind" label="Entry type">
+          <select {...register("kind")} id="n-kind" className={inputCls}>
             <option value="NOTE">Internal note (AICTE only)</option>
             <option value="INTERIM_REPLY_SENT">Interim reply sent to complainant</option>
             <option value="NEXT_ACTION">Set next action</option>
           </select>
         </Field>
-        <Field label="Remarks" required><textarea className={cx(inputCls, "min-h-24")} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Next action"><input className={inputCls} value={nextAction} onChange={(e) => setNextAction(e.target.value)} /></Field>
-          <Field label="Next action due"><input type="date" className={inputCls} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+        <Field id="n-remarks" label="Remarks" required error={errors.remarks?.message}>
+          <textarea {...register("remarks")} {...fieldA11y("n-remarks", errors.remarks?.message)} className={cx(inputCls, "min-h-24")} />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px]">
+          <Field id="n-next" label="Next action"><input {...register("next_action")} id="n-next" className={inputCls} /></Field>
+          <Field id="n-due" label="Next action due"><input {...register("next_action_due")} id="n-due" type="date" className={inputCls} /></Field>
         </div>
         <ErrorNote error={error} />
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!remarks.trim()} onClick={go}>Save</Button></div>
-      </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function RevealDialog({ caseNo, open, onClose }: { caseNo: string; open: boolean; onClose: () => void }) {
+  const [reason, setReason] = useState("");
+  const [out, setOut] = useState<{ name: string | null; contact: string | null; notice: string } | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const close = () => { setOut(null); setReason(""); setError(null); onClose(); };
+  const go = async () => {
+    setBusy(true);
+    try {
+      setOut(await api(`/cases/${caseNo}/complainant`, { json: { reason } }));
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const tooShort = reason.trim().length < 10;
+  return (
+    <Modal open={open} onClose={close} size="sm" title="Reveal complainant identity" description="Identity is encrypted at rest. Every reveal is written to the audit chain with your reason."
+      footer={out ? <Button onClick={close}>Done</Button> : <><Button variant="ghost" onClick={close}>Cancel</Button><Button busy={busy} disabled={tooShort} onClick={go}>Reveal</Button></>}>
+      {out ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+          <dt className="text-muted">Name</dt><dd className="font-medium">{out.name ?? "—"}</dd>
+          <dt className="text-muted">Contact</dt><dd className="font-medium">{out.contact ?? "—"}</dd>
+          <dd className="col-span-2 mt-2 rounded-lg bg-warn-soft px-3 py-2 text-warn-ink">{out.notice}</dd>
+        </dl>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <Field id="rv-reason" label="Reason" required hint="At least 10 characters, e.g. “Phone call to confirm hearing date”.">
+            <input {...fieldA11y("rv-reason", undefined, true)} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />
+          </Field>
+          <ErrorNote error={error} />
+        </div>
+      )}
     </Modal>
   );
 }

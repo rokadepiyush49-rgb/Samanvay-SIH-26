@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ReasonList } from "@/components/cases";
-import { Button, Card, ErrorNote, Field, PageHead, inputCls, cx } from "@/components/ui";
+import { EvidenceList } from "@/components/status";
+import { Require } from "@/components/require";
+import { Button, Card, ErrorNote, Field, PageHeader, inputCls, cx } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { CHANNEL_LABEL } from "@/lib/format";
-import { useSession } from "@/lib/session";
+import { useSession, useUnsavedChanges } from "@/lib/session";
 import type { Meta, Reason } from "@/lib/types";
 
 type Candidate = { institution_id: string; permanent_id: string; name: string; city: string | null; state: string | null; approval_status: string; probability: number; reasons: Reason[] };
@@ -27,7 +28,7 @@ const EMPTY = {
   institution_city: "", subject: "", body: "", complainant_name: "", complainant_phone: "", complainant_type: "STUDENT",
 };
 
-export default function NewCasePage() {
+function NewCase() {
   const router = useRouter();
   const { me } = useSession();
   const { data: meta } = useApi<Meta>("/meta");
@@ -38,6 +39,7 @@ export default function NewCasePage() {
   const [busy, setBusy] = useState(false);
   const [dupe, setDupe] = useState<string | null>(null);
 
+  useUnsavedChanges("new-case", !busy && (f.subject !== "" || f.body !== "" || f.institution_name !== ""));
   const nameReady = f.institution_name.trim().length >= 3;
   useEffect(() => {
     if (!nameReady) return;
@@ -73,11 +75,11 @@ export default function NewCasePage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHead title="Register a complaint" actions={me?.demo_mode && <Button variant="soft" onClick={() => setF(STORY)}>Load demo CPGRAMS grievance (Hindi)</Button>}>
-        Seven fields are mandatory. The institution is resolved as you type; references (CPGRAMS number, Permanent ID, court case) are read from the text automatically.
-      </PageHead>
+      <PageHeader title="Register a complaint" crumbs={[{ label: "All Cases", href: "/cases" }, { label: "New case" }]}
+        description="Seven fields are mandatory. The institution is resolved as you type; references (CPGRAMS number, Permanent ID, court case) are read from the text automatically."
+        actions={me?.demo_mode && <Button variant="secondary" onClick={() => setF(STORY)}>Load demo CPGRAMS grievance (Hindi)</Button>} />
       {dupe && (
-        <Card tone="yellow">
+        <Card>
           <p className="font-bold">Already registered</p>
           <p className="text-sm">A case with this channel and reference exists: <Link className="font-mono font-bold underline" href={`/cases/${dupe}`}>{dupe}</Link>. No duplicate was created.</p>
         </Card>
@@ -121,25 +123,24 @@ export default function NewCasePage() {
             </Field>
           </div>
           <ErrorNote error={error} />
-          <div><Button type="submit" busy={busy} arrow>Register case</Button></div>
+          <div><Button type="submit" busy={busy}>Register case</Button></div>
         </Card>
 
-        <Card tone="cream" className="flex h-fit flex-col gap-3 xl:sticky xl:top-20">
-          <h2 className="font-bold">Institution resolver</h2>
+        <Card className="flex h-fit flex-col gap-3 xl:sticky xl:top-20" title="Institution resolver" description="Matches from the AICTE master. Sibling campuses are shown, never merged.">
           {!shown && <p className="text-sm text-muted">Type the institution&apos;s name to see matches from the AICTE master.</p>}
           {shown && (
             <>
-              <p className={cx("rounded-2xl px-3 py-2 text-sm font-semibold", shown.status === "RESOLVED" ? "bg-mint text-mint-ink" : "bg-yellow text-yellow-ink")}>{shown.note}</p>
+              <p className={cx("rounded-lg px-3 py-2 text-sm font-semibold", shown.status === "RESOLVED" ? "bg-ok-soft text-ok-ink" : "bg-warn-soft text-warn-ink")}>{shown.note}</p>
               <ul className="flex flex-col gap-2">
                 {shown.candidates.map((c) => (
                   <li key={c.institution_id}>
                     <button type="button" onClick={() => setPicked(picked === c.institution_id ? null : c.institution_id)} aria-pressed={picked === c.institution_id}
-                      className={cx("w-full rounded-2xl border p-3 text-left transition", picked === c.institution_id ? "border-navy bg-surface ring-2 ring-navy" : "border-rule bg-surface hover:border-navy/40")}>
+                      className={cx("w-full rounded-lg border p-3 text-left transition", picked === c.institution_id ? "border-action bg-action-soft/40 ring-2 ring-action" : "border-rule bg-surface hover:border-navy/40")}>
                       <span className="flex items-start justify-between gap-2">
                         <span><span className="block text-sm font-bold">{c.name}</span><span className="text-xs text-muted">{c.city}, {c.state} · {c.permanent_id}</span></span>
-                        <span className="rounded-full bg-navy px-2 py-0.5 text-xs font-bold text-white tabular">{c.probability.toFixed(2)}</span>
+                        <span className="rounded-md bg-navy px-2 py-0.5 text-xs font-semibold text-white tabular">{c.probability.toFixed(2)}</span>
                       </span>
-                      <span className="mt-2 block"><ReasonList reasons={c.reasons} compact /></span>
+                      <span className="mt-2 block"><EvidenceList reasons={c.reasons} compact /></span>
                     </button>
                   </li>
                 ))}
@@ -151,4 +152,8 @@ export default function NewCasePage() {
       </form>
     </div>
   );
+}
+
+export default function NewCasePage() {
+  return <Require cap="cases.create"><NewCase /></Require>;
 }

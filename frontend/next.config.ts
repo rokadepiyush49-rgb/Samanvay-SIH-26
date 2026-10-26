@@ -17,6 +17,8 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // The browser tests run a second dev server against a disposable database; it needs its own build folder.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
   output: "standalone",
   async rewrites() {

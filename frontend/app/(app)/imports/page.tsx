@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Badge, Button, Card, Empty, ErrorNote, Field, PageHead, Spinner, Table, inputCls, cx } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorNote, Field, PageHeader, Spinner, Table, inputCls, cx } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { CHANNEL_LABEL, fmtDateTime, label } from "@/lib/format";
 import type { Meta } from "@/lib/types";
+import { Require } from "@/components/require";
 
 type Preview = { header: string[]; row_count: number; sample: string[][]; column_map: Record<string, string | null>; status_map: Record<string, string | null>; category_map: Record<string, string | null>; required: string[]; fields: string[]; statuses: string[]; channels: string[] };
 type Job = { id: string; filename: string; status: string; total_rows: number; created_rows: number; duplicate_rows: number; error_rows: number; created_at: string; finished_at: string | null; channel: string; errors?: { row: number; error: string }[]; overlaps_found?: number; matching_pending?: number };
@@ -17,7 +18,7 @@ const FIELD_LABEL: Record<string, string> = {
   complainant_type: "Complainant type", city: "City", state: "State", pin: "PIN", disposed_on: "Disposal date", next_action: "Next action",
 };
 
-export default function ImportsPage() {
+function Importer() {
   const { data: meta } = useApi<Meta>("/meta");
   const { data: jobs, mutate: refreshJobs } = useApi<{ items: Job[] }>("/imports");
   const { data: profiles } = useApi<{ items: Profile[] }>("/imports/profiles");
@@ -71,16 +72,15 @@ export default function ImportsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHead title="Register Importer">
-        Bring a unit&apos;s existing register or a CPGRAMS export into the ledger on day one. Map the columns once, validate every row, and re-run safely: rows with the same reference are never duplicated.
-      </PageHead>
-      <Card tone="cream" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <PageHeader title="Register Importer" crumbs={[{ label: "Workspace" }, { label: "Register Importer" }]}
+        description="Bring a unit's existing register or a CPGRAMS export into the ledger. Map the columns once, validate every row, and re-run safely: rows with the same reference are never duplicated." />
+      <Card className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-bold">1 · Choose a CSV or XLSX file (10 MB max)</p>
           <p className="text-xs text-muted">Samples: <code>samples/rb_register_sample.xlsx</code>, <code>samples/cpgrams_export_sample.csv</code></p>
         </div>
         <input type="file" accept=".csv,.xlsx" onChange={(e) => e.target.files?.[0] && preview(e.target.files[0])}
-          className="text-sm file:mr-3 file:rounded-full file:border-0 file:bg-navy file:px-4 file:py-2 file:font-semibold file:text-white" />
+          className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-action file:px-4 file:py-2 file:font-semibold file:text-white" />
       </Card>
       <ErrorNote error={error} />
 
@@ -128,7 +128,7 @@ export default function ImportsPage() {
               </div>
             </div>
           )}
-          <details className="rounded-2xl bg-surface-2 p-3 text-xs"><summary className="cursor-pointer font-semibold">Sample rows</summary>
+          <details className="rounded-lg bg-surface-2 p-3 text-xs"><summary className="cursor-pointer font-semibold">Sample rows</summary>
             <div className="mt-2 overflow-x-auto"><table className="text-left"><thead><tr>{pv.header.map((h) => <th key={h} className="px-2 py-1">{h}</th>)}</tr></thead>
               <tbody>{pv.sample.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className="max-w-[18ch] truncate px-2 py-1">{v}</td>)}</tr>)}</tbody></table></div>
           </details>
@@ -136,20 +136,20 @@ export default function ImportsPage() {
             <Field label="Save mapping as (optional)"><input className={inputCls} value={saveAs} onChange={(e) => setSaveAs(e.target.value)} placeholder="e.g. RB register 2026" /></Field>
             <div className="flex items-center gap-3">
               {missing.length > 0 && <p className="text-xs font-semibold text-danger">Map: {missing.join(", ")}</p>}
-              <Button busy={busy} disabled={missing.length > 0} onClick={start} arrow>Import {pv.row_count} rows</Button>
+              <Button busy={busy} disabled={missing.length > 0} onClick={start}>Import {pv.row_count} rows</Button>
             </div>
           </div>
         </Card>
       )}
 
       {jobId && (
-        <Card tone={job?.status === "FAILED" ? "pink" : job?.status === "DONE" ? "mint" : "sky"}>
+        <Card className={job?.status === "FAILED" ? "border-danger/40 bg-danger-soft" : job?.status === "DONE" ? "border-ok/40 bg-ok-soft" : "border-action/40 bg-action-soft"}>
           <p className="font-bold">3 · {job ? `${label(job.status)} · ${job.filename}` : "Starting…"}</p>
           {job && (
             <>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
                 {[["Rows", job.total_rows], ["Created", job.created_rows], ["Already present", job.duplicate_rows], ["Rejected", job.error_rows], ["Overlaps found", job.overlaps_found ?? 0]].map(([l, v]) => (
-                  <div key={l} className="rounded-2xl bg-surface/70 p-3 text-ink"><p className="text-xs text-muted">{l}</p><p className="text-2xl font-extrabold tabular">{v}</p></div>
+                  <div key={l} className="rounded-lg bg-surface/70 p-3 text-ink"><p className="text-xs text-muted">{l}</p><p className="text-2xl font-extrabold tabular">{v}</p></div>
                 ))}
               </div>
               {(job.matching_pending ?? 0) > 0 && <p className="mt-2 text-xs">Overlap matching is still running for {job.matching_pending} cases…</p>}
@@ -162,8 +162,8 @@ export default function ImportsPage() {
         </Card>
       )}
 
-      <h2 className="text-lg font-extrabold">Previous imports</h2>
-      {!jobs ? <Spinner /> : jobs.items.length === 0 ? <Empty title="No imports yet." /> : (
+      <h2 className="text-base font-semibold">Previous imports</h2>
+      {!jobs ? <Spinner /> : jobs.items.length === 0 ? <EmptyState title="No imports yet." /> : (
         <Table head={["File", "Channel", "Status", "Created", "Present", "Rejected", "When"]}>
           {jobs.items.map((j) => (
             <tr key={j.id}><td><button className="font-semibold underline-offset-2 hover:underline" onClick={() => setJobId(j.id)}>{j.filename}</button></td><td>{CHANNEL_LABEL[j.channel] ?? j.channel}</td>
@@ -174,4 +174,8 @@ export default function ImportsPage() {
       )}
     </div>
   );
+}
+
+export default function ImportsPage() {
+  return <Require cap="imports.run"><Importer /></Require>;
 }
