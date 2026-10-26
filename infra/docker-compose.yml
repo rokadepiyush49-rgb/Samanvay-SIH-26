@@ -1,0 +1,96 @@
+# Samanvay demo / pilot stack. Usage (from the repository root):
+#   python3 scripts/gen_env.py            # once: writes .env with generated secrets
+#   docker compose -f infra/docker-compose.yml --env-file .env up --build
+#   docker compose -f infra/docker-compose.yml --env-file .env run --rm api python -m app.ml.seed   # demo data
+# Optional: --profile clamav (real malware scanning), --profile s3 (MinIO object storage).
+name: samanvay
+
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:-demo}
+  DEMO_MODE: ${DEMO_MODE:-true}
+  DATABASE_URL: postgresql+psycopg://samanvay_app:${DB_APP_PASSWORD}@db:5432/samanvay
+  WORKER_DATABASE_URL: postgresql+psycopg://samanvay_worker:${DB_WORKER_PASSWORD}@db:5432/samanvay
+  MIGRATION_DATABASE_URL: postgresql+psycopg://samanvay_owner:${DB_OWNER_PASSWORD}@db:5432/samanvay
+  JWT_SECRET: ${JWT_SECRET}
+  FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY}
+  HMAC_KEY: ${HMAC_KEY}
+  AUDIT_SIGNING_KEY: ${AUDIT_SIGNING_KEY}
+  SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+  SCANNER: ${SCANNER:-builtin}
+  CLAMAV_HOST: clamav
+  SMTP_HOST: mailhog
+  SMTP_PORT: "1025"
+  TEXT_BACKEND: ${TEXT_BACKEND:-ngram}
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres-local-only}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      DB_WORKER_PASSWORD: ${DB_WORKER_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d samanvay"]
+      interval: 5s
+      retries: 20
+
+  migrate:
+    build: ../backend
+    environment: *backend-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  api:
+    build: ../backend
+    environment: *backend-env
+    volumes:
+      - documents:/srv/var/documents
+      - ../ml/benchmark:/srv/ml/benchmark
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    ports: ["127.0.0.1:8000:8000"]
+
+  worker:
+    build: ../backend
+    environment: *backend-env
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - documents:/srv/var/documents
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build:
+      context: ../frontend
+      args: { API_ORIGIN: "http://api:8000" }
+    depends_on: [api]
+    ports: ["127.0.0.1:3000:3000"]
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports: ["127.0.0.1:8025:8025"]
+
+  clamav:
+    image: clamav/clamav:1.4
+    profiles: ["clamav"]
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    profiles: ["s3"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-samanvay}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-change-me-minio}
+    volumes: [minio:/data]
+
+volumes:
+  pgdata:
+  documents:
+  minio:

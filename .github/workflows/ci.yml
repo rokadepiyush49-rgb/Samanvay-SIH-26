@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 20
+    env:
+      DB_OWNER_PASSWORD: ci-owner
+      DB_APP_PASSWORD: ci-app
+      DB_WORKER_PASSWORD: ci-worker
+      TEST_ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      PGPASSWORD: postgres
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.10"
+      - run: uv sync --python 3.12 --frozen
+      - name: Create database roles
+        run: |
+          psql -h localhost -U postgres -c "CREATE ROLE samanvay_owner LOGIN PASSWORD '$DB_OWNER_PASSWORD'"
+          psql -h localhost -U postgres -c "CREATE ROLE samanvay_app LOGIN PASSWORD '$DB_APP_PASSWORD' NOBYPASSRLS"
+          psql -h localhost -U postgres -c "CREATE ROLE samanvay_worker LOGIN PASSWORD '$DB_WORKER_PASSWORD' BYPASSRLS"
+      - run: uv run ruff check app tests migrations
+      - run: uv run ruff format --check app tests migrations
+      - run: uv run pytest -o addopts="" -q
+      - name: Matching benchmark (regression guard)
+        run: uv run python -m app.ml.benchmark
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

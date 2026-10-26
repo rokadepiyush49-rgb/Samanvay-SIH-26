@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* Visual language: deep-navy hero panels with large type, pastel workspace tiles, rounded surfaces, pill buttons
+   with a circular arrow. Status is always text + shape, never colour alone. */
+:root {
+  --page: #f3f4f9;
+  --surface: #ffffff;
+  --surface-2: #f7f8fc;
+  --ink: #1d2150;
+  --muted: #5e6487;
+  --rule: #e2e4ef;
+  --navy: #23285a;
+  --navy-2: #30377a;
+  --on-navy: #dfe6ff;
+  --mint: #a9dec4;
+  --mint-ink: #1f5a43;
+  --yellow: #f2de72;
+  --yellow-ink: #6b5a10;
+  --pink: #eac3d9;
+  --pink-ink: #7a2f58;
+  --sky: #a6c4f5;
+  --sky-ink: #23427e;
+  --cream: #fbf5e8;
+  --danger: #b42318;
+  --danger-soft: #fde8e7;
+  --ok: #1f7a4d;
+  --focus: #3d5bd9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #14162c;
+    --surface: #1d2042;
+    --surface-2: #232750;
+    --ink: #e8e9f5;
+    --muted: #a5a9c8;
+    --rule: #2f3463;
+    --navy: #0e1030;
+    --navy-2: #262c66;
+    --on-navy: #dfe6ff;
+    --cream: #26284a;
+    --danger: #ff8a80;
+    --danger-soft: #3a1d26;
+    --ok: #7ad3a5;
+    --focus: #8fa8ff;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #14162c;
+  --surface: #1d2042;
+  --surface-2: #232750;
+  --ink: #e8e9f5;
+  --muted: #a5a9c8;
+  --rule: #2f3463;
+  --navy: #0e1030;
+  --navy-2: #262c66;
+  --cream: #26284a;
+  --danger: #ff8a80;
+  --danger-soft: #3a1d26;
+  --ok: #7ad3a5;
+  --focus: #8fa8ff;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-navy: var(--navy);
+  --color-navy-2: var(--navy-2);
+  --color-on-navy: var(--on-navy);
+  --color-mint: var(--mint);
+  --color-mint-ink: var(--mint-ink);
+  --color-yellow: var(--yellow);
+  --color-yellow-ink: var(--yellow-ink);
+  --color-pink: var(--pink);
+  --color-pink-ink: var(--pink-ink);
+  --color-sky: var(--sky);
+  --color-sky-ink: var(--sky-ink);
+  --color-cream: var(--cream);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ok: var(--ok);
+  --font-sans: var(--font-jakarta), var(--font-deva), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  background: var(--page);
+  color: var(--ink);
+}
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+::selection {
+  background: var(--sky);
+  color: #142148;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
