@@ -310,7 +310,32 @@ class Coordination(Base):
     decide_by: Mapped[dt.date] = mapped_column(Date)
     escalated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     opened_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    verification: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[dt.datetime] = _now()
+    row_version: Mapped[int] = mapped_column(Integer, default=1)
+
+    __mapper_args__ = {"version_id_col": row_version}
+
+
+class AssistanceRequest(Base):
+    __tablename__ = "assistance_request"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    code: Mapped[str] = mapped_column(Text)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("case_record.id"))
+    from_unit_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("unit.id"))
+    to_unit_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("unit.id"))
+    kind: Mapped[str] = mapped_column(Text)
+    request: Mapped[str] = mapped_column(Text)
+    due_on: Mapped[dt.date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(Text, default="SENT")
+    requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    requested_at: Mapped[dt.datetime] = _now()
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    responded_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    responded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    response: Mapped[str | None] = mapped_column(Text)
+    suggested_unit: Mapped[str | None] = mapped_column(Text)
+    followed_recommendation: Mapped[bool] = mapped_column(Boolean, default=False)
     row_version: Mapped[int] = mapped_column(Integer, default=1)
 
     __mapper_args__ = {"version_id_col": row_version}
@@ -350,6 +375,7 @@ class Timer(Base):
     case_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("case_record.id"))
     transfer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("transfer.id"))
     coordination_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("coordination.id"))
+    assistance_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("assistance_request.id"))
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     dedupe_key: Mapped[str] = mapped_column(Text)
     fired_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

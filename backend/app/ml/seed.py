@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import io
 import os
 import random
 import sys
@@ -15,21 +16,26 @@ import time
 import uuid
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.db import worker_session
 from app.core.security import hash_password
 from app.ml import synthetic as syn
-from app.models import AppUser, CaseRecord, Institution, InstitutionAlias, MappingProfile, Unit
+from app.models import AppUser, CaseLink, CaseRecord, Institution, InstitutionAlias, MappingProfile, Unit
 from app.modules.audit import chain
 from app.modules.case import service as cs
 from app.modules.matching.normalize import normalize_name
+from app.modules.matching.scoring import ACTION_STAGE
 from app.modules.policy.roles import CurrentUser
+from app.modules.sla.calendar import IST, at_ist, get_calendar, today_ist
 
 ROOT = Path(__file__).resolve().parents[3]
 SAMPLES = ROOT / "samples"
 DOMAIN = "samanvay.example"
+# Historical coordination cards left undecided on purpose (newest first), so the demo has a realistic queue.
+BACKLOG_CARDS = 12
 
 UNITS = [
     ("RB", "Regulation Bureau", "विनियमन ब्यूरो", "BUREAU", None),
@@ -149,13 +155,20 @@ CPGRAMS_PROFILE = {
 
 
 def actor(db: Session, handle: str) -> CurrentUser:
+    return _actor(db, "u.email = :v", f"{handle}@{DOMAIN}")
+
+
+def actor_by_id(db: Session, user_id: uuid.UUID) -> CurrentUser:
+    return _actor(db, "u.id = :v", user_id)
+
+
+def _actor(db: Session, where: str, value) -> CurrentUser:
     r = db.execute(
         text(
             "SELECT u.id, u.email, u.full_name, u.designation, u.unit_id, u.roles, u.sealed_clearance, "
-            "un.code, un.name, un.region_id FROM app_user u JOIN unit un ON un.id = u.unit_id "
-            "WHERE u.email = :e"
+            f"un.code, un.name, un.region_id FROM app_user u JOIN unit un ON un.id = u.unit_id WHERE {where}"
         ),
-        {"e": f"{handle}@{DOMAIN}"},
+        {"v": value},
     ).first()
     return CurrentUser(
         id=r.id,
@@ -322,7 +335,9 @@ def syn_city_rate() -> float:
     return CITY_PROVIDED
 
 
-def seed_story(db: Session, inst_ids: dict[str, uuid.UUID]) -> None:
+def seed_story(db: Session, inst_ids: dict[str, uuid.UUID]) -> dict[str, str]:
+    """Story cases for the walkthrough; returns story key → case number."""
+    numbers = {}
     for s in syn.STORY_CASES:
         who = actor(db, UNIT_INTAKE[s["unit"]])
         officer = actor(db, s["officer"])
@@ -357,7 +372,228 @@ def seed_story(db: Session, inst_ids: dict[str, uuid.UUID]) -> None:
             case.status, case.last_action = "ACTION_INITIATED", "EXPERT_COMMITTEE_VISIT"
         else:
             _set_status(db, case, s["status"], officer, s.get("disposed_on"))
+        numbers[s["key"]] = case.case_no
     db.commit()
+    return numbers
+
+
+def _lead_unit(a: CaseRecord, b: CaseRecord, units: dict[uuid.UUID, str]) -> str:
+    """The unit already acting leads; otherwise RB for regulatory matters; otherwise the unit that received first."""
+    acting = [c for c in (a, b) if c.status in ACTION_STAGE]
+    if len(acting) == 1:
+        return units[acting[0].holding_unit_id]
+    if "RB" in (units[a.holding_unit_id], units[b.holding_unit_id]):
+        return "RB"
+    return units[min((a, b), key=lambda c: (c.received_on, c.case_no)).holding_unit_id]
+
+
+def settle_history(db: Session, created: list[tuple[syn.SynComplaint, str]]) -> list[dict]:
+    """Decide the historical coordination cards the way officers would have, through the coordination service.
+
+    The generator's hidden matter labels stand in for the officers' judgement (same matter → duplicate or related with
+    a lead unit; otherwise not related), so decisions, events, audit entries and KPIs come from the real workflow.
+    Story cases and the newest BACKLOG_CARDS cards stay undecided. Returns the timestamps to back-date.
+    """
+    from app.modules.coordination import service as co_service
+
+    truth = {case_no: c for c, case_no in created}
+    rng = random.Random(syn.SEED + 11)
+    units = {u.id: u.code for u in db.query(Unit).all()}
+    nodal = actor(db, "meera.bora")
+    cal = get_calendar(db)
+    today = today_ist()
+    latest = dt.datetime.now(IST) - dt.timedelta(hours=1)
+    rows = db.execute(
+        text(
+            "SELECT co.id, co.code, a.case_no AS a_no, b.case_no AS b_no, "
+            "greatest(a.received_on, b.received_on) AS opened_on FROM coordination co "
+            "JOIN case_link l ON l.id = co.link_id JOIN case_record a ON a.id = l.left_id "
+            "JOIN case_record b ON b.id = l.right_id WHERE co.status = 'OPEN' ORDER BY opened_on DESC, co.code"
+        )
+    ).all()
+    historical = [r for r in rows if r.a_no in truth and r.b_no in truth]
+    backdates = []
+    for r in historical[BACKLOG_CARDS:]:
+        co = co_service.get_coordination(db, str(r.id), lock=True)
+        link = db.get(CaseLink, co.link_id)
+        a, b = db.get(CaseRecord, link.left_id), db.get(CaseRecord, link.right_id)
+        ta, tb = truth[a.case_no], truth[b.case_no]
+        decision = "NOT_RELATED"
+        lead = joint = None
+        remarks = "Different matters on the same institution; each unit continues separately."
+        if ta.matter == tb.matter:
+            decision = "DUPLICATE" if ta.kind == "dup_multichannel" else "RELATED"
+            lead = _lead_unit(a, b, units)
+            joint = "Lead unit shares its findings; one consolidated reply to the complainant"
+            remarks = "Same underlying matter; the lead unit examines it and the other unit follows its findings."
+        opened = min(r.opened_on + dt.timedelta(days=1), today - dt.timedelta(days=1))
+        escalated_on = None
+        proposal = {"decision": decision, "lead_unit_code": lead, "joint_next_action": joint, "joint_due": None}
+        if rng.random() < 0.06:
+            co_service.escalate(db, co, None, "No joint decision within 3 working days.")
+            co_service.propose(db, nodal, co, **proposal, remarks=remarks, expected_version=None)
+            escalated_on = cal.add_working_days(opened, 3)
+            decided_on = cal.add_working_days(escalated_on, rng.choice([1, 2, 3]))
+        else:
+            first, second = (a, b) if rng.random() < 0.5 else (b, a)
+            co_service.propose(
+                db, actor_by_id(db, first.holding_officer_id), co, **proposal, remarks=remarks, expected_version=None
+            )
+            co_service.confirm(db, actor_by_id(db, second.holding_officer_id), co, None)
+            decided_on = cal.add_working_days(opened, rng.choice([1, 1, 2, 2, 3, 5]))
+        opened_at = min(at_ist(opened, 11), latest)
+        decided_at = max(min(at_ist(decided_on, 16), latest), opened_at)
+        backdates.append(
+            {
+                "id": co.id,
+                "code": co.code,
+                "link": f"/coordination/{co.code}",
+                "o": opened_at,
+                "p": max(min(at_ist(decided_on, 10), decided_at), opened_at),
+                "d": decided_at,
+                "e": max(min(at_ist(escalated_on, 18), decided_at), opened_at) if escalated_on else None,
+                "by": cal.add_working_days(opened, 3),
+            }
+        )
+    db.commit()
+    return backdates
+
+
+def backdate_history(rows: list[dict]) -> None:
+    """Move the seeded decisions to when they would have happened. case_event is append-only for the application
+    roles, so this seed-only step runs as the schema owner; audit entries keep the time they were actually written."""
+    engine = create_engine(get_settings().migration_database_url)
+    with engine.begin() as conn:
+        for r in rows:
+            conn.execute(
+                text(
+                    "UPDATE coordination SET created_at = :o, proposed_at = :p, decided_at = :d, decide_by = :by, "
+                    "escalated_at = CASE WHEN escalated_at IS NULL THEN NULL ELSE CAST(:e AS timestamptz) END "
+                    "WHERE id = :id"
+                ),
+                r,
+            )
+            conn.execute(
+                text(
+                    "UPDATE case_event SET at = :o WHERE event_type = 'COORDINATION_OPENED' "
+                    "AND data->>'coordination' = :code"
+                ),
+                r,
+            )
+            conn.execute(
+                text(
+                    "UPDATE case_event SET at = :d WHERE data->>'coordination' = :code "
+                    "AND (event_type = 'COORDINATION_DECIDED' OR action = 'FOLLOW_LEAD')"
+                ),
+                r,
+            )
+            if r["e"]:
+                conn.execute(
+                    text(
+                        "UPDATE case_event SET at = :e WHERE event_type = 'ESCALATED' AND data->>'coordination' = :code"
+                    ),
+                    r,
+                )
+            # Officers read these at the time; nothing from settled history is e-mailed after seeding.
+            conn.execute(
+                text(
+                    "UPDATE notification SET created_at = :o, read_at = :d, email_status = CASE WHEN email_status = "
+                    "'PENDING' THEN 'SKIPPED' ELSE email_status END WHERE link = :link"
+                ),
+                r,
+            )
+    engine.dispose()
+
+
+def _pdf(title: str, lines: list[str]) -> bytes:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    page = canvas.Canvas(buf, pagesize=A4, invariant=1)
+    page.setTitle(title)
+    page.setFont("Helvetica-Bold", 13)
+    page.drawString(56, 790, title)
+    page.setFont("Helvetica", 10)
+    y = 762
+    for line in [*lines, "", "Synthetic demonstration document. Not an AICTE record."]:
+        page.drawString(56, y, line)
+        y -= 16
+    page.save()
+    return buf.getvalue()
+
+
+STORY_DOCUMENTS = [
+    (
+        "S1",
+        "neha.iyer",
+        "Expert-committee-report-SVIE-Nashik.pdf",
+        "Report of the expert committee visit, 24-09-2026",
+        [
+            "Institution: Sahyadri Valley Institute of Engineering, Nashik (1-9990001234)",
+            "Mechanical: 4 of 9 sanctioned faculty posts filled. Civil: 3 of 8.",
+            "Original certificates of 37 B.Tech students held against fee arrears.",
+            "Recommendation: show-cause notice under the Approval Process Handbook.",
+        ],
+    ),
+    (
+        "S2",
+        "fernandes",
+        "Student-council-representation-SVIE.pdf",
+        "Student council representation: laboratory and library",
+        [
+            "Electronics laboratory: no working oscilloscopes since July 2026.",
+            "Library journal subscription lapsed in June 2026.",
+            "Request: verification visit by the Western Regional Office.",
+        ],
+    ),
+    (
+        "S5",
+        "arjun.sharma",
+        "Letter-to-institute-scholarship-status.pdf",
+        "Letter to the institute seeking scholarship status",
+        [
+            "Ref: PGRC e-mail grievance on post-matric scholarship (MBA).",
+            "The institute is asked to report the status on the state portal within 10 days.",
+        ],
+    ),
+]
+
+
+def seed_evidence(db: Session, story: dict[str, str]) -> None:
+    """Documents on the story cases (through the real upload pipeline) and two frozen management reports."""
+    from app.modules.assistance import service as assistance
+    from app.modules.documents.service import attach
+    from app.modules.reports.router import GenerateIn, generate
+
+    for key, handle, filename, title, lines in STORY_DOCUMENTS:
+        case = cs.get_case(db, story[key])
+        attach(db, actor(db, handle), case, filename, _pdf(title, lines), "Placed on file.")
+    # RB already asked the Approval Bureau for the institute's approval record on story case S1 (completed).
+    rb, ab = actor(db, "neha.iyer"), actor(db, "harpreet.gill")
+    req = assistance.request(
+        db,
+        rb,
+        cs.get_case(db, story["S1"]),
+        to_unit_code="AB",
+        kind="INFORMATION",
+        body="Please confirm the approved intake and sanctioned faculty for B.Tech Mechanical and Civil for 2025-26.",
+        due_on=None,
+    )
+    assistance.accept(db, ab, req.id, None, None)
+    assistance.complete(
+        db,
+        ab,
+        req.id,
+        "Approval records for 2025-26: intake 120 (Mechanical) and 60 (Civil); sanctioned faculty 9 and 8. "
+        "The expert committee found 4 and 3 in position.",
+        None,
+    )
+    db.commit()
+    adviser = actor(db, "dr.rao")
+    last_month = today_ist().replace(day=1) - dt.timedelta(days=1)
+    generate(GenerateIn(report_code="PERFORMANCE", period="month", anchor=last_month), user=adviser, db=db)
+    generate(GenerateIn(report_code="OVERLAPS"), user=adviser, db=db)
 
 
 def finish_history(db: Session) -> None:
@@ -607,6 +843,15 @@ def main() -> None:
     db = worker_session()
     if db.execute(text("SELECT count(*) FROM unit")).scalar_one():
         sys.exit("The database already has data. Re-create it with scripts/db_reset.sh before seeding again.")
+    # A running worker would match seeded cases before the calibrated model is active and open cards that the
+    # seed's settlement step never sees.
+    from app.worker import WORKER_APP_NAME
+
+    if db.execute(
+        text("SELECT count(*) FROM pg_stat_activity WHERE application_name = :n AND datname = current_database()"),
+        {"n": WORKER_APP_NAME},
+    ).scalar_one():
+        sys.exit("Stop the worker before seeding (it would race the seed's matching), then start it again afterwards.")
     t0 = time.perf_counter()
     print("Seeding units and demo officials…", flush=True)
     seed_people(db, password)
@@ -615,7 +860,7 @@ def main() -> None:
     ids = seed_institutions(db, ds)
     db.commit()
     print("Seeding story cases…", flush=True)
-    seed_story(db, ids)
+    story = seed_story(db, ids)
     print(f"Loading {len(ds.complaints)} synthetic cases through the intake path…", flush=True)
     created = seed_cases(db, ds, ids)
     finish_history(db)
@@ -626,6 +871,10 @@ def main() -> None:
 
     jobs_done = drain()
     print(f"  {jobs_done} matching jobs", flush=True)
+    print("Recording officers' decisions on historical coordination cards…", flush=True)
+    backdate_history(settle_history(db, created))
+    print("Attaching story documents and freezing two reports…", flush=True)
+    seed_evidence(db, story)
     chain.create_checkpoint(db)
     db.commit()
     write_samples(ds, created)
@@ -633,12 +882,15 @@ def main() -> None:
         text(
             "SELECT (SELECT count(*) FROM case_record) AS cases, (SELECT count(*) FROM case_link "
             "WHERE link_type <> 'L') AS links, (SELECT count(*) FROM coordination) AS coordinations, "
+            "(SELECT count(*) FROM coordination WHERE status <> 'DECIDED') AS undecided, "
+            "(SELECT count(*) FROM notification WHERE read_at IS NULL) AS unread, "
             "(SELECT count(*) FROM audit_event) AS audit"
         )
     ).first()
     print(
         f"Done in {time.perf_counter() - t0:.0f} s: {stats.cases} cases, {stats.links} overlap proposals, "
-        f"{stats.coordinations} coordination cards, {stats.audit} audit entries. Samples in {SAMPLES}."
+        f"{stats.coordinations} coordination cards ({stats.undecided} undecided), {stats.unread} unread "
+        f"notifications, {stats.audit} audit entries. Samples in {SAMPLES}."
     )
     db.close()
 

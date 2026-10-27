@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import uuid
 from urllib.parse import quote
 
@@ -18,16 +17,11 @@ from app.models import Document
 from app.modules.audit import chain
 from app.modules.auth.deps import current_user
 from app.modules.case import service as case_service
-from app.modules.documents.storage import new_key, scan, sniff_type, store
+from app.modules.documents.service import attach
+from app.modules.documents.storage import store
 from app.modules.policy.roles import CASEWORK_ROLES, CurrentUser, Role
 
 router = APIRouter(tags=["documents"])
-SAFE_NAME = re.compile(r"[^\w.\- ()ऀ-ॿ]")
-
-
-def _safe_filename(name: str) -> str:
-    base = SAFE_NAME.sub("_", (name or "document").split("/")[-1].split("\\")[-1]).strip(". ") or "document"
-    return base[:120]
 
 
 def read_limited(upload: UploadFile, max_bytes: int) -> bytes:
@@ -60,66 +54,17 @@ def upload(
     data = read_limited(file, get_settings().max_upload_mb * 1024 * 1024)
     if not data:
         raise invalid("The file is empty.")
-    filename = _safe_filename(file.filename or "document")
-    mime = sniff_type(data[:4096], filename)
-    if mime is None:
-        raise AppError(
-            415,
-            "File type not allowed",
-            "Upload PDF, PNG, JPEG, DOCX, XLSX, CSV or plain-text files. The file's content must match its extension.",
-            "unsupported-type",
-        )
-    digest = sha256_hex(data)
-    quarantine_key = new_key("quarantine", filename)
-    store().put(quarantine_key, data)
-    result = scan(data)
-    key = quarantine_key
-    if result.status == "CLEAN":
-        key = new_key(f"cases/{case.id}", filename)
-        store().move(quarantine_key, key)
-    elif result.status == "REJECTED":
-        store().delete(quarantine_key)
-    ev = case_service.add_event(
-        db,
-        case,
-        "DOCUMENT_ADDED" if result.status == "CLEAN" else "DOCUMENT_REJECTED",
-        user,
-        remarks=note,
-        data={"filename": filename, "sha256": digest, "scan": result.status, "scan_detail": result.detail},
-    )
-    doc = Document(
-        id=uuid.uuid4(),
-        case_id=case.id,
-        event_id=ev.id,
-        filename=filename,
-        mime=mime,
-        size_bytes=len(data),
-        sha256=digest,
-        object_key=key,
-        scan_status=result.status,
-        scan_detail=result.detail,
-        uploaded_by=user.id,
-    )
-    db.add(doc)
-    chain.record(
-        db,
-        "document.uploaded",
-        actor_id=user.id,
-        actor_unit_id=user.unit_id,
-        entity_type="case",
-        entity_id=case.case_no,
-        payload={"document_id": str(doc.id), "sha256": digest, "scan": result.status, "size": len(data)},
-    )
+    doc = attach(db, user, case, file.filename or "document", data, note)
     db.commit()
-    if result.status == "REJECTED":
-        raise AppError(422, "File rejected", result.detail, "malware", document_id=str(doc.id))
+    if doc.scan_status == "REJECTED":
+        raise AppError(422, "File rejected", doc.scan_detail, "malware", document_id=str(doc.id))
     return {
         "id": str(doc.id),
-        "filename": filename,
-        "sha256": digest,
-        "scan_status": result.status,
-        "scan_detail": result.detail,
-        "size_bytes": len(data),
+        "filename": doc.filename,
+        "sha256": doc.sha256,
+        "scan_status": doc.scan_status,
+        "scan_detail": doc.scan_detail,
+        "size_bytes": doc.size_bytes,
     }
 
 

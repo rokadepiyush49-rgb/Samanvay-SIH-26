@@ -26,6 +26,7 @@ from app.modules.coordination import guard
 from app.modules.institution.resolver import InstQuery, Resolution, resolve
 from app.modules.matching.normalize import detect_language, extract_refs
 from app.modules.policy.roles import CASEWORK_ROLES, INTAKE_ROLES, CurrentUser, Role
+from app.modules.routing import service as routing
 from app.modules.sla import notify as nt
 from app.modules.sla import service as sla
 from app.modules.sla.calendar import today_ist
@@ -667,7 +668,14 @@ def _learn_alias(db: Session, user: CurrentUser, inst: Institution, raw: str | N
 
 
 def propose_transfer(
-    db: Session, user: CurrentUser, case: CaseRecord, to_unit_code: str, reason: str, expected_version: int | None
+    db: Session,
+    user: CurrentUser,
+    case: CaseRecord,
+    to_unit_code: str,
+    reason: str,
+    expected_version: int | None,
+    *,
+    followed_recommendation: bool = False,
 ) -> Transfer:
     _check_version(case, expected_version)
     _require_holder(user, case, "transfer it")
@@ -712,7 +720,12 @@ def propose_transfer(
         from_unit=case.holding_unit_id,
         to_unit=to_unit.id,
         remarks=reason.strip(),
-        data={"transfer_id": str(tr.id)},
+        data={
+            "transfer_id": str(tr.id),
+            "to_unit": to_unit.code,
+            "jurisdiction": routing.jurisdiction(db, to_unit.id, case)["mandate"],
+            "followed_recommendation": followed_recommendation,
+        },
     )
     sla.schedule_transfer_timers(db, tr.id, case.id, today_ist())
     nt.notify(

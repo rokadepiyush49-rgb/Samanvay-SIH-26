@@ -11,6 +11,7 @@ from app.core.db import api_engine
 from app.core.errors import install_error_handlers
 from app.core.middleware import configure_logging, install_middleware
 from app.modules.admin.router import router as admin_router
+from app.modules.assistance.router import router as assistance_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.case.router import router as case_router
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
         auth_router,
         case_router,
         coordination_router,
+        assistance_router,
         institution_router,
         dashboard_router,
         documents_router,

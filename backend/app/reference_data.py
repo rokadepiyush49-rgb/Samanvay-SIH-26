@@ -71,6 +71,33 @@ COMPAT_OVERRIDES = {
 }
 
 
+# Unit directory v0 (proposed; AICTE to confirm). Each category's default unit holds the PRIMARY mandate; SUPPORT
+# rows name units that commonly assist without taking the case over. A row names one unit or every unit of a type.
+MANDATE_BASIS = {
+    "PGRC": "PGRC handles grievances of students, faculty and stakeholders, including CPGRAMS grievances",
+    "RB": "The Regulation Bureau handles norm violations and regulatory action under the Approval Process Handbook",
+    "AB": "The Approval Bureau holds approval records and decides intake and programme approvals",
+    "ARC": "The Anti-Ragging Cell handles ragging and harassment complaints under restricted access",
+}
+# unit code, unit type, category, own region only, basis
+SUPPORT_MANDATES = [
+    (None, "REGIONAL_OFFICE", "NV_FACULTY", True, "Regional Offices verify faculty norms on site in their region"),
+    (None, "REGIONAL_OFFICE", "NV_INFRA", True, "Regional Offices verify infrastructure norms on site in their region"),
+    (
+        None,
+        "REGIONAL_OFFICE",
+        "NV_CERT_RETENTION",
+        True,
+        "Regional Offices can verify certificate retention at the institute in their region",
+    ),
+    (None, "REGIONAL_OFFICE", "NV_INTAKE", True, "Regional Offices verify admitted intake in their region"),
+    ("AB", None, "NV_UNAPPROVED", False, "The Approval Bureau confirms an institution's approval status"),
+    ("RB", None, "NV_INTAKE", False, "RB takes regulatory action once excess intake is established"),
+    ("AUD", None, "VIGILANCE", False, "Internal Audit and Vigilance assists on vigilance referrals"),
+    ("AUD", None, "MAL_FINANCIAL", False, "Internal Audit and Vigilance examines financial records"),
+]
+
+
 def compat_matrix() -> dict[tuple[str, str], float]:
     groups = {c[0]: c[3] for c in CATEGORIES}
     out: dict[tuple[str, str], float] = {}

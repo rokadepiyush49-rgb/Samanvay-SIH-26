@@ -41,7 +41,7 @@ It **drops the local `samanvay` database first** and refuses to run when `APP_EN
 Open http://localhost:3000. With `DEMO_MODE=true` the sign-in page lists demo officials for every role (one click, no password).
 The demo password for the form is `SEED_DEMO_PASSWORD` in your `.env`.
 
-### Demo script (≈5 minutes)
+### Demo script (≈6 minutes)
 
 1. Sign in as **Kavita Menon (PGRC intake)** → *New case* → **Load demo CPGRAMS grievance (Hindi)**. The resolver picks
    Sahyadri Valley Institute of Engineering, **Nashik 0.98**, and shows the Pune sibling campus at 0.50 with the reason. Register.
@@ -49,22 +49,30 @@ The demo password for the form is `SEED_DEMO_PASSWORD` in your `.env`.
 3. Switch role to **Dr Neha Iyer (RB)** → open SMV-2026-000001 → **Issue show-cause notice** → the **Action Conflict Guard**
    lists the PGRC grievance and the Western RO matter → *Coordinate first*.
 4. In the coordination card, propose **Related, RB leads**, with a joint action. Switch to **Prof. Sanjay Gupta (PGRC)** and confirm.
-5. **Institution 360** for 1-9990001234: every case across units, custodians, and the case-constellation timeline.
-6. **Dr Suresh Rao (Adviser)** → *Management Cockpit*: tiles drill down to the exact cases; replay a 15-day CPGRAMS target in the SLA simulator; generate a monthly report and note its SHA-256.
-7. **Internal Auditor** → *Audit* → *Verify chain*. To show tamper detection, edit one `audit_event.payload` row as the schema owner and verify again: the first broken entry is named.
-8. *Matching benchmark*: B0 / B1 baselines vs the cascade, per overlap kind, with caveats.
+5. **Routing and assistance.** As **Anthony Fernandes (Western RO)** open SMV-2026-000002: the *Routing check* recommends a
+   transfer to RB (primary mandate, already acting on the institution) with its reasons and alternatives; *Approve* opens the
+   transfer pre-filled with RB's mandate shown. On SMV-2026-000001 RB keeps the case and has already asked the Approval
+   Bureau for the approval record (A-2026-00001, completed); *Request assistance* sends a new one, and the other unit reads
+   the case only until it completes. On coordination C-2026-00001 *Needs verification* records what to check and by when.
+6. **Institution 360** for 1-9990001234: every case across units, custodians, and the case-constellation timeline.
+7. **Dr Suresh Rao (Adviser)** → *Management Cockpit*: tiles drill down to the exact cases; replay a 15-day CPGRAMS target in the SLA simulator; generate a monthly report and note its SHA-256.
+8. **Internal Auditor** → *Audit* → *Verify chain*. To show tamper detection, edit one `audit_event.payload` row as the schema owner and verify again: the first broken entry is named.
+9. *Matching benchmark*: B0 / B1 baselines vs the cascade, per overlap kind, with caveats.
 
 Sample files to import live: [samples/rb_register_sample.xlsx](samples/rb_register_sample.xlsx) (300 rows, 9 overlapping
 PGRC matters, 3 deliberately bad rows) and [samples/cpgrams_export_sample.csv](samples/cpgrams_export_sample.csv).
 
 ## Run with Docker Compose
 
-```bash
-docker compose -f infra/docker-compose.yml --env-file .env up --build
-```
+Seed first (the seed refuses to run while a worker is connected, because the worker would race its matching), then
+start everything:
 
 ```bash
 docker compose -f infra/docker-compose.yml --env-file .env run --rm api python -m app.ml.seed
+```
+
+```bash
+docker compose -f infra/docker-compose.yml --env-file .env up -d --build
 ```
 
 Web on :3000, API on :8000 (OpenAPI at `/api/docs` outside production), MailHog on :8025. Add `--profile clamav` for real malware scanning.

@@ -20,9 +20,10 @@ Status is always icon + text. Inter for UI text, Poppins for the wordmark, Noto 
 | Workspace | Bureau Desk (KPIs, alerts, top-8 priorities, quick actions) | `/desk` | intake, case officer, unit head, RO |
 | | My Worklist (views, mine/unit, search, urgency sort, paging) | `/worklist` | same |
 | | All Cases register (search, filters, chips, sort, paging, CSV of page) | `/cases`, `/cases/new` | case-view roles |
-| | Case workspace — Overview · Timeline · Documents · Linked cases | `/cases/[caseNo]?tab=` | case-view roles |
+| | Case workspace — Overview (routing check, assistance) · Timeline · Documents · Linked cases | `/cases/[caseNo]?tab=` | case-view roles |
 | | Coordination Centre and review room — Review & decide · Discussion | `/coordination`, `/coordination/[code]` | coordination roles, senior mgmt, auditor |
 | | Transfers — Incoming · Outgoing · History | `/transfers?view=` | case-view roles |
+| | Assistance Requests — Asked of my unit · My unit asked · History | `/assistance?view=` | case-view roles |
 | | Register Importer | `/imports` | intake roles |
 | Institutions | Institution 360 — Identity & units · Cases · Related-case alerts · History | `/institutions`, `/institutions/[pid]` | case-view roles, data steward |
 | Insights | Management Cockpit — Overview · Workload & ageing · SLA & timeliness · Coordination | `/cockpit/*` | unit head, RO, senior mgmt, CA |
@@ -38,6 +39,17 @@ the register remembers its page per query in `sessionStorage` (cleared on sign-o
 
 `lib/permissions.ts` mirrors the backend role sets and drives navigation and buttons. It is a usability layer: the API
 and PostgreSQL row-level security enforce every rule, and pages show a permission-denied state on 403.
+
+## Routing and assistance (components/routing.tsx)
+
+- **Routing check** (case Overview, holding unit only): keep / transfer / assist with a relative confidence, an
+  "ambiguous jurisdiction" flag, the reasons (same evidence list as overlap matching), units already coordinating, and
+  alternatives. "Approve" opens the transfer or assistance form pre-filled; the officer can change anything.
+- **Mandate hint** in the transfer and assistance forms: the unit directory's view of the chosen unit for this category
+  (primary, supporting, or none — advisory).
+- **Assistance panel** on the case and the **Assistance Requests** inbox: accept, complete (response), decline (reason,
+  optional better-placed unit), withdraw. Sidebar badge = requests awaiting your unit's acknowledgement.
+- **Needs verification** on the coordination card: what to verify and by when; shown as a banner until someone decides.
 
 ## Authentication
 

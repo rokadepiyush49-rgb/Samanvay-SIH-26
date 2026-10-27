@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: 26 Oct 2026 (frontend rebuild in the afternoon). Source of truth for scope: the *Samanvay Solution Blueprint* artifact (31 sections, 51 requirements).
+Last updated: 27 Oct 2026 (scope audit; Phase 0 verification and Phase 1 routing & assistance). Source of truth for scope: the *Samanvay Solution Blueprint* artifact (31 sections, 51 requirements).
 Status values: **Completed**, **In progress**, **Not started**, **Blocked**. "Completed" means implemented, exercised by an
 automated test or by the browser walkthrough below, and not a mock.
 
@@ -8,18 +8,19 @@ automated test or by the browser walkthrough below, and not a mock.
 
 | Check | Result |
 |---|---|
-| Backend tests (`uv run pytest`, real PostgreSQL 17, fresh `samanvay_test` DB from migrations) | **48 passed**, 0 failed (26 Oct, after the frontend rebuild: +2 for the transfers list and cockpit analytics feeds) |
+| Backend tests (`uv run pytest`, real PostgreSQL 17, fresh `samanvay_test` DB from migrations 0001–0003) | **55 passed**, 0 failed (27 Oct; +7 in `test_routing_assistance`) |
 | Backend lint / format (`ruff check`, `ruff format --check`) | clean |
 | Frontend `tsc --noEmit`, `eslint .` | 0 errors, 0 warnings |
-| Frontend unit tests (`pnpm test`, Vitest) | **23 passed** |
-| Frontend browser journeys (`pnpm e2e`, Playwright + Chrome, real API on a copy of the demo DB) | **12 passed** — sign-in per role, sign-out, search, filter persistence, overlap evidence, two-party decision, transfer handshake, Action Conflict Guard, restricted roles, loading / empty / error / session-expiry |
-| Frontend `next build` (production) | succeeds, 31 routes |
-| Demo seed (`app.ml.seed`) | 3,005 cases, 400 institutions, 802 overlap proposals, 198 coordination cards, ~100 s |
+| Frontend unit tests (`pnpm test`, Vitest) | **25 passed** (+2 for assistance and verification forms) |
+| Frontend browser journeys (`pnpm e2e`, Playwright + Chrome, real API on a copy of the demo DB) | **13 passed** — sign-in per role, sign-out, search, filter persistence, overlap evidence, two-party decision, transfer handshake, **assistance request accepted and completed by another unit (access ends on completion)**, Action Conflict Guard, restricted roles, loading / empty / error / session-expiry |
+| Frontend `next build` (production) | succeeds inside the `web` Docker image (27 Oct) |
+| Demo seed (`app.ml.seed`) | 3,005 cases, 400 institutions, 802 overlap proposals, 198 coordination cards (13 undecided), 46 unread notifications, ~65 s |
+| Browser walkthrough, 27 Oct (built-in browser) | RB routing check (keep, already coordinating with RO-W) → request assistance from AB (mandate hint) → AB inbox accept → AB reads the case while open → complete → AB back to metadata; RO-W routing check recommends transfer to RB with alternatives; "needs verification" on C-2026-00001 |
+| Docker Compose (27 Oct) | images built; seed run in the `api` container (same numbers as above); stack up; `/health/ready` OK; web `/login` 200; demo sign-in and routing check through the web proxy. Found and fixed: missing `.dockerignore`, unpinned pnpm, seed racing a running worker (seed now refuses), worker inheriting the API healthcheck (now a heartbeat check) |
 | Matching benchmark, n-gram backend (default) | Samanvay P 0.896 / R 0.807 / F1 0.849 vs B1 fuzzy-name F1 0.589, B0 0.452 |
 | Matching benchmark, multilingual embeddings | P 0.904 / R 0.813 / F1 0.856; Hindi–English recall 0.35 (n-gram 0.29) |
 | Institution resolution (benchmark) | auto-resolve precision 1.000, top-3 recall 0.999, 0 sibling-campus false merges, 34% routed to an officer |
 | Browser walkthrough (built-in browser, dev server) | intake → resolver → P-type coordination card → guard on show-cause → coordinate first → propose / confirm decision → cockpit, 360, benchmark, reports pages; no page-level horizontal overflow at 672 px |
-| Docker Compose | `docker compose config` validates; **images not built or run** (Docker daemon unavailable on the build machine) |
 | CI workflow | written; **not run** (repository has no remote yet) |
 
 Recall is below the blueprint target of 0.85 (0.807). The shortfall is Hindi–English pairs without the embedding backend;
@@ -43,7 +44,10 @@ all other overlap kinds are ≥ 0.93. Precision meets the 0.80 target.
 | 12 | RBAC + ABAC tiers + PostgreSQL RLS, sealed categories, reveal-with-reason | Completed | migration `0001` (RLS functions/policies, grants), `policy/roles.py`, `case/views.py` | `test_access_tiers` (5 tests incl. raw-SQL RLS bypass attempt) | Role matrix covered by targeted tests, not the full 120-case matrix. Time-boxed access grants exist in the schema and RLS but have no UI/API to issue them yet. |
 | 13 | Hash-chained audit, Ed25519-signed Merkle checkpoints, verifier, insert-only roles | Completed | `audit/chain.py`, `audit/router.py` | `test_audit_chain_verifies_and_detects_tampering` | Signing key from env; production should hold it in a KMS/HSM. RFC 3161 timestamping not built. |
 | 14 | Accessibility and Hindi | In progress | `frontend/*`, `lib/i18n.ts`, `lib/session.tsx` | lint rules, Playwright journeys use role/label queries | Hindi for navigation, titles and common actions; status always icon + text; labelled fields with error messages; ARIA tabs with arrow keys; Radix dialogs manage focus; skip link; text-size and reduce-motion preferences; no page-level horizontal overflow at 375 px on the pages checked. axe-core and a screen-reader pass not run. |
-| 15 | Bounded LLM agents, breach-risk model, complainant lookup | Not started | — | — | Optional by design; the core never depends on them. |
+| 15 | Bounded LLM agents, breach-risk model, complainant lookup | Not started | — | — | Optional by design; the core never depends on them. Next: AI copilot (summary, match explanation, category suggestion) and an officer-facing regulations RAG (scope audit, 27 Oct). |
+| 16 | Inter-bureau routing check and unit directory (ministry note pp. 13–15) | Completed (rules) | `routing/service.py`, migration `0003` (`unit_mandate`), `components/routing.tsx` | `test_routing_assistance` (directory, transfer recommendation, keep, jurisdiction recorded) | Rules-first, advisory: mandate (primary 3.0 / support 1.0), related cases held, transfer history, holder preference. Directory is proposed v0. No AI text classifier yet; recommendations are computed on demand, not stored (whether the officer followed one is recorded on the transfer / request). |
+| 17 | Assistance requests — holding unit keeps the case (ministry routing action B) | Completed | `assistance/*`, migration `0003` (`assistance_request`, `smv_case_full` clause), `app/(app)/assistance`, `components/routing.tsx` | `test_routing_assistance` (lifecycle, access only while open, decline + suggestion, sealed refused, overdue escalates once), Playwright journey 7b | SENT → ACCEPTED → COMPLETED / DECLINED / CANCELLED; reminder at 2 working days, escalation after the due date. No head-approval step before sending. |
+| 05b | "Needs verification" coordination outcome (ministry note p. 4) | Completed | `coordination/service.py` (`request_verification`), coordination page | `test_needs_verification_keeps_the_card_undecided` | Status `VERIFYING`; ≤ 10 working days; guard still warns; escalates if undecided. |
 
 ## Other work items
 
@@ -53,7 +57,8 @@ all other overlap kinds are ≥ 0.93. Precision meets the 0.80 target.
 | Demo seed with story cases and sample import files | Completed | `backend/app/ml/seed.py`, `samples/` |
 | Frontend rebuild: logo-derived design system, grouped navigation, one page per workspace with tabs, Worklist / Transfers / Notifications / Settings pages, cockpit and reports split into sections | Completed | See docs/FRONTEND.md. Replaces the earlier pastel-tile style. |
 | Frontend unit and browser tests | Completed | `frontend/tests/`, `frontend/e2e/`, `scripts/e2e_db.sh` |
-| Docker images and Compose stack | In progress | Written and config-validated; not built (no Docker daemon) |
+| Docker images and Compose stack | Completed | Built 27 Oct after adding `.dockerignore` files and pinning `packageManager: pnpm@9.12.0` (a newer pnpm in the image refused the lockfile's build scripts). See verification table for the run. |
+| Demo seed hygiene | Completed | Historical coordination cards are decided through the real workflow from the generator's hidden labels (back-dated as the schema owner); 12 newest stay open. Seeds 3 story documents, 2 frozen reports and one completed assistance request. Unread notifications after seeding: 42 (was 992). |
 | CI (GitHub Actions: ruff, pytest with Postgres, benchmark, web lint/typecheck/build, gitleaks) | In progress | Written; not executed |
 | OIDC / Parichay SSO | Not started | Local Argon2 accounts with revocable sessions today |
 | Load, ZAP, axe-core, restore drills (blueprint §24) | Not started | |
@@ -63,16 +68,26 @@ all other overlap kinds are ≥ 0.93. Precision meets the 0.80 target.
 - The benchmark is synthetic and generated by the same team; it proves the mechanism and the measurement, not real-world accuracy.
 - Seeded cases resolve to the least-loaded officer, so the PGRC director (who also holds the case-officer role) receives some cases.
 - Rate limiting is in-process; run one API replica or move it to Redis.
-- Notification volume on a freshly seeded database is high (several hundred) because historical overlaps open cards at seed time.
-- The project folder is not yet a git repository; the gitleaks CI job needs one.
+- The repository has no remote yet, so the CI workflow (incl. gitleaks) has not run.
+- The routing directory and its weights are proposals; confidence is relative (softmax over the leading units), not a
+  probability that a routing is legally correct.
 - `TRANSFER_PROPOSED` rows from imports are mapped to `REGISTERED` (an imported register cannot carry a pending handshake).
 
 ## Continuation checklist (priority order)
 
-1. Run CI on a remote and build the Docker images; fix anything environment-specific.
-2. Mentor validation of statuses, categories, timelines, sealed categories and consequential actions (blueprint §4.4, Q1–Q12); update migration `0002` data accordingly.
-3. Tune embedding-backend text bands on cross-lingual pairs (Hindi–English recall is the remaining gap to R ≥ 0.85).
-4. API and UI for time-boxed access grants; "head approval to proceed" option in the guard.
-5. axe-core in CI, a keyboard-only pass, and Hindi strings beyond navigation.
-6. k6 load scenarios from blueprint §22.3; ZAP baseline; backup-restore drill.
-7. OIDC login (Keycloak for the pilot, Parichay for production) behind the existing session model.
+Scope audit of 27 Oct (ministry solution note + AI proposal): Phase 0 (verification, demo hygiene) and Phase 1 (routing,
+assistance, needs verification) are done. Next, in order:
+
+1. Phase 2 — turn on multilingual embeddings for the demo (bundle the model), case tasks (owner, due, status,
+   dependencies), Institution Case Graph view, recurring-issue clustering, category-wise and overlap-trend reports,
+   per-officer workload.
+2. Phase 3 — AI copilot behind a flag on synthetic data (case summary, coordination brief, match explanation, category
+   suggestion, missing-information check; citations to event IDs; human approves), then an officer-facing RAG over a
+   curated set of public regulations.
+3. Run CI on a remote.
+4. Mentor validation of statuses, categories, timelines, sealed categories and consequential actions (blueprint §4.4, Q1–Q12); update migration `0002` data accordingly.
+5. Tune embedding-backend text bands on cross-lingual pairs (Hindi–English recall is the remaining gap to R ≥ 0.85).
+6. API and UI for time-boxed access grants; "head approval to proceed" option in the guard.
+7. axe-core in CI, a keyboard-only pass, and Hindi strings beyond navigation.
+8. k6 load scenarios from blueprint §22.3; ZAP baseline; backup-restore drill.
+9. OIDC login (Keycloak for the pilot, Parichay for production) behind the existing session model.

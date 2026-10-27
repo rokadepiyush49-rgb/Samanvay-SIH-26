@@ -13,6 +13,7 @@ import time
 import traceback
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -133,7 +134,14 @@ PERIODIC = [
 ]
 
 
+WORKER_APP_NAME = "samanvay-worker"
+# Touched every loop; the container healthcheck (infra/docker-compose.yml) fails if it goes stale.
+HEARTBEAT = Path(os.environ.get("WORKER_HEARTBEAT", "/tmp/samanvay-worker.heartbeat"))  # noqa: S108
+
+
 def main() -> None:
+    # Named connections let the demo seed see that a worker is running (it must not race the seed's matching).
+    os.environ["PGAPPNAME"] = WORKER_APP_NAME
     configure_logging()
     stop = False
 
@@ -148,6 +156,7 @@ def main() -> None:
     db = worker_session()
     get_settings()
     while not stop:
+        HEARTBEAT.touch()
         now = time.monotonic()
         for name, every, fn in PERIODIC:
             if now - last_run[name] >= every:

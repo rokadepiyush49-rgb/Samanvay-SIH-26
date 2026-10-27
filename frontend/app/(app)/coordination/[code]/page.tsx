@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertTriangle, CheckCircle2, Copy, GitMerge, Lock, MessageSquare, Send, TrendingUp, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, FileSearch, GitMerge, Lock, MessageSquare, Send, TrendingUp, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -13,7 +13,7 @@ import { useToast } from "@/components/toast";
 import { Badge, Button, Card, ErrorNote, ErrorState, Field, Modal, PageHeader, PageSkeleton, TabPanel, Tabs, cx, fieldA11y, inputCls } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { fmtDate, fmtDateTime, label } from "@/lib/format";
-import { decisionSchema, type DecisionForm } from "@/lib/schemas";
+import { decisionSchema, verificationSchema, type DecisionForm, type VerificationForm } from "@/lib/schemas";
 import { useSession, useUnsavedChanges } from "@/lib/session";
 import type { CoordSide, CoordinationRoom } from "@/lib/types";
 
@@ -57,6 +57,7 @@ function DecisionPanel({ c, onChanged }: { c: CoordinationRoom; onChanged: (msg:
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [escalate, setEscalate] = useState(false);
+  const [verify, setVerify] = useState(false);
   const { register, handleSubmit, setValue, control, reset, formState: { errors, isSubmitting, isDirty } } = useForm<DecisionForm>({
     resolver: zodResolver(decisionSchema),
     defaultValues: { decision: "RELATED", lead_unit: "", joint_next_action: "", joint_due: "", remarks: "" },
@@ -112,6 +113,16 @@ function DecisionPanel({ c, onChanged }: { c: CoordinationRoom; onChanged: (msg:
   return (
     <Card title="Decision" description={outstanding(c)}>
       <div className="flex flex-col gap-4">
+        {c.status === "VERIFYING" && c.verification && (
+          <div className="flex items-start gap-3 rounded-lg border border-coord/30 bg-coord-soft p-4 text-sm text-coord-ink" data-testid="verification">
+            <FileSearch size={18} className="mt-0.5 shrink-0" aria-hidden />
+            <div>
+              <p className="font-semibold">{c.verification.by_unit} needs verification before deciding — by {fmtDate(c.verification.verify_by)}</p>
+              <p className="mt-0.5">“{c.verification.what}” — {c.verification.by}</p>
+              <p className="mt-1 text-xs">Still undecided: the Action Conflict Guard keeps warning, and the card escalates if nobody decides by that date.</p>
+            </div>
+          </div>
+        )}
         {p && c.status === "AWAITING_CONFIRMATION" && (
           <div className="rounded-lg border border-action/30 bg-action-soft/60 p-4 text-sm" data-testid="proposal">
             <p className="font-semibold">{p.by_unit} proposed: {label(p.decision)}{p.lead_unit ? `, ${p.lead_unit} leads` : ""}</p>
@@ -161,7 +172,10 @@ function DecisionPanel({ c, onChanged }: { c: CoordinationRoom; onChanged: (msg:
             </Field>
             <ErrorNote error={error} />
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button variant="ghost" onClick={() => setEscalate(true)} icon={<TrendingUp size={15} aria-hidden />}>Escalate</Button>
+              <span className="flex flex-wrap gap-1">
+                <Button variant="ghost" onClick={() => setEscalate(true)} icon={<TrendingUp size={15} aria-hidden />}>Escalate</Button>
+                <Button variant="ghost" onClick={() => setVerify(true)} icon={<FileSearch size={15} aria-hidden />}>Needs verification</Button>
+              </span>
               <Button type="submit" busy={isSubmitting}>{c.status === "ESCALATED" ? "Record decision" : "Send proposal for confirmation"}</Button>
             </div>
             <p className="text-xs text-muted">Cases are never merged automatically. A duplicate decision makes the later case follow the lead case; both stay in the ledger.</p>
@@ -176,7 +190,45 @@ function DecisionPanel({ c, onChanged }: { c: CoordinationRoom; onChanged: (msg:
         description={p ? `${label(p.decision)}${p.lead_unit ? `, ${p.lead_unit} leads` : ""}. This is recorded on both cases and in the audit chain.` : undefined}
         footer={<><Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button><Button busy={busy} onClick={confirm}>Confirm decision</Button></>} />
       <EscalateDialog code={c.code} open={escalate} onClose={() => setEscalate(false)} onDone={() => { setEscalate(false); onChanged("Escalated to the nodal officer."); }} />
+      {verify && (
+        <VerificationDialog c={c} onClose={() => setVerify(false)}
+          onDone={(by) => { setVerify(false); onChanged(`Marked as needing verification. Decide by ${fmtDate(by)}; the other unit has been told.`); }} />
+      )}
     </Card>
+  );
+}
+
+/** Ministry note p. 4, step 2: "requires further verification" — neither related nor unrelated yet. */
+function VerificationDialog({ c, onClose, onDone }: { c: CoordinationRoom; onClose: () => void; onDone: (verifyBy: string) => void }) {
+  const [error, setError] = useState<unknown>(null);
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<VerificationForm>({
+    resolver: zodResolver(verificationSchema), defaultValues: { remarks: "", verify_by: "" },
+  });
+  const submit = handleSubmit(async (v) => {
+    setError(null);
+    try {
+      const out = await api<{ decide_by: string }>(`/coordination/${c.code}/verification`, {
+        json: { remarks: v.remarks, verify_by: v.verify_by || null }, headers: { "if-match": String(c.row_version) },
+      });
+      onDone(out.decide_by);
+    } catch (e) {
+      setError(e);
+    }
+  });
+  return (
+    <Modal open onClose={onClose} size="sm" title="Needs verification before deciding"
+      description="The cases stay linked but undecided. Any pending proposal is cleared, and the decision date moves to your verification date (at most 10 working days)."
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" form="verify-form" busy={isSubmitting} icon={<FileSearch size={15} aria-hidden />}>Record</Button></>}>
+      <form id="verify-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
+        <Field id="v-what" label="What must be verified" required error={errors.remarks?.message} hint="e.g. “Confirm both complaints concern the 2025 B.Tech batch at the Nashik campus.”">
+          <textarea {...register("remarks")} {...fieldA11y("v-what", errors.remarks?.message, true)} className={cx(inputCls, "min-h-20")} />
+        </Field>
+        <Field id="v-by" label="Verify by" hint="Leave empty for 5 working days.">
+          <input {...register("verify_by")} id="v-by" type="date" className={cx(inputCls, "sm:w-52")} />
+        </Field>
+        <ErrorNote error={error} />
+      </form>
+    </Modal>
   );
 }
 

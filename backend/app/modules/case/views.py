@@ -11,11 +11,13 @@ from sqlalchemy.orm import Session
 
 from app.core import crypto
 from app.models import CaseRecord
+from app.modules.assistance import service as assistance
 from app.modules.audit import chain
 from app.modules.case import fsm
 from app.modules.case.service import allowed_actions, has_full_access
 from app.modules.matching.scoring import PS_PHRASE, TYPE_LABELS
-from app.modules.policy.roles import CurrentUser
+from app.modules.policy.roles import CASEWORK_ROLES, CurrentUser, Role
+from app.modules.routing import service as routing
 from app.modules.search.query import CaseFilters, build_where, decode_cursor, encode_cursor, parse_tokens
 from app.modules.sla.calendar import get_calendar, today_ist
 
@@ -277,11 +279,19 @@ def case_detail(db: Session, user: CurrentUser, case: CaseRecord) -> dict[str, A
         ],
         "coordination": coord_cards,
         "coordination_required": any(
-            c["status"] in ("OPEN", "AWAITING_CONFIRMATION", "ESCALATED") for c in coord_cards
+            c["status"] in ("OPEN", "AWAITING_CONFIRMATION", "VERIFYING", "ESCALATED") for c in coord_cards
         ),
         "phrase": PS_PHRASE,
         "allowed_actions": allowed_actions(db, user, case),
         "can_transfer": case.holding_unit_id == user.unit_id and case.status in ("REGISTERED", "UNDER_EXAMINATION"),
+        "assistance": assistance.for_case(db, user, case.id),
+        "can_request_assistance": case.holding_unit_id == user.unit_id
+        and user.has(*CASEWORK_ROLES)
+        and case.status not in fsm.TERMINAL
+        and case.sensitivity != "SEALED",
+        "routing": routing.recommend(db, case)
+        if full and (case.holding_unit_id == user.unit_id or user.has(Role.COMPETENT_AUTHORITY, Role.NODAL_OFFICER))
+        else None,
     }
 
     pending = db.execute(

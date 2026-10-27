@@ -1,7 +1,7 @@
 # Samanvay demo / pilot stack. Usage (from the repository root):
 #   python3 scripts/gen_env.py            # once: writes .env with generated secrets
-#   docker compose -f infra/docker-compose.yml --env-file .env up --build
-#   docker compose -f infra/docker-compose.yml --env-file .env run --rm api python -m app.ml.seed   # demo data
+#   docker compose -f infra/docker-compose.yml --env-file .env run --rm api python -m app.ml.seed   # demo data, before the worker starts
+#   docker compose -f infra/docker-compose.yml --env-file .env up -d --build
 # Optional: --profile clamav (real malware scanning), --profile s3 (MinIO object storage).
 name: samanvay
 
@@ -61,6 +61,12 @@ services:
     build: ../backend
     environment: *backend-env
     command: ["python", "-m", "app.worker"]
+    # The image's healthcheck polls the API port; the worker has none, so it proves its loop is alive instead.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(time.time() - os.path.getmtime('/tmp/samanvay-worker.heartbeat') > 120)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     volumes:
       - documents:/srv/var/documents
     depends_on:

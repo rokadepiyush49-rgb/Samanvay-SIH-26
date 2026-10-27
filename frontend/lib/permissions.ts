@@ -27,6 +27,8 @@ export const CAPABILITIES = {
   "coordination.decide": COORDINATION,
   "transfers.view": CASE_VIEW,
   "transfers.decide": CASEWORK,
+  "assistance.view": CASE_VIEW,
+  "assistance.respond": CASEWORK,
   "institutions.view": [...CASE_VIEW, "DATA_STEWARD"] as Role[],
   "institutions.steward": ["DATA_STEWARD"] as Role[],
   "imports.run": INTAKE,

@@ -371,6 +371,84 @@ def _apply(
     return co
 
 
+def request_verification(
+    db: Session,
+    user: CurrentUser,
+    co: Coordination,
+    *,
+    remarks: str,
+    verify_by: dt.date | None,
+    expected_version: int | None,
+) -> Coordination:
+    """Ministry note p. 4, step 2: the reviewing officer can mark the link as needing verification instead of
+    deciding. The card stays undecided (the guard still warns), any pending proposal is cleared, and the escalation
+    clock moves to the verification date, so an unanswered verification still escalates."""
+    if expected_version is not None and expected_version != co.row_version:
+        raise AppError(
+            409,
+            "Coordination changed",
+            "The other unit updated this card. Reload and try again.",
+            "stale-version",
+            current_version=co.row_version,
+        )
+    if co.status == "DECIDED":
+        raise conflict("This coordination has already been decided.")
+    link = db.get(CaseLink, co.link_id)
+    a, b = _cases(db, link, lock=True)
+    if side_of(user, a, b) is None and not user.has(Role.NODAL_OFFICER, Role.COMPETENT_AUTHORITY):
+        raise forbidden("Only officers of the two units, the nodal officer or the Competent Authority can do this.")
+    remarks = (remarks or "").strip()
+    if len(remarks) < 10:
+        raise invalid("Say what must be verified (at least 10 characters).", field="remarks")
+    cal, today = get_calendar(db), today_ist()
+    verify_by = verify_by or cal.add_working_days(today, 5)
+    if verify_by <= today or verify_by > cal.add_working_days(today, 10):
+        raise invalid("Set a verification date within the next 10 working days.", field="verify_by")
+    sla.cancel_coordination_timers(db, co.id)
+    co.status, co.decide_by = "VERIFYING", verify_by
+    co.proposal = co.proposed_by = co.proposed_unit_id = co.proposed_at = None
+    co.verification = {
+        "what": remarks,
+        "by": user.full_name,
+        "by_unit": user.unit_code,
+        "verify_by": verify_by.isoformat(),
+        "at": dt.datetime.now(dt.UTC).isoformat(),
+    }
+    sla.schedule_coordination_timer(db, co.id, verify_by)
+    for case, other in ((a, b), (b, a)):
+        add_event(
+            db,
+            case,
+            "COORDINATION_VERIFYING",
+            user,
+            remarks=remarks,
+            data={"coordination": co.code, "other_case": other.case_no, "verify_by": verify_by.isoformat()},
+        )
+    other_unit = b.holding_unit_id if user.unit_id == a.holding_unit_id else a.holding_unit_id
+    other_case = b if other_unit == b.holding_unit_id else a
+    nt.notify(
+        db,
+        [other_case.holding_officer_id, *nt.unit_heads(db, other_unit)],
+        family="COORDINATION",
+        severity="WARNING",
+        title=f"{user.unit_code} needs verification on {co.code} before deciding",
+        body=f"Verify by {verify_by.strftime('%d-%m-%Y')}.",
+        link=f"/coordination/{co.code}",
+        case_id=other_case.id,
+        key=f"coord:{co.id}:verify:{verify_by}",
+    )
+    chain.record(
+        db,
+        "coordination.verification_requested",
+        actor_id=user.id,
+        actor_unit_id=user.unit_id,
+        entity_type="coordination",
+        entity_id=co.code,
+        payload={"verify_by": verify_by.isoformat()},
+    )
+    return co
+
+
 def escalate(db: Session, co: Coordination, by: CurrentUser | None, reason: str) -> Coordination:
     if co.status in ("DECIDED", "ESCALATED"):
         return co

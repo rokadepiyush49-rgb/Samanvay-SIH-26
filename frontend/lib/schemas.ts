@@ -51,4 +51,27 @@ export const decisionSchema = z
   });
 export type DecisionForm = z.infer<typeof decisionSchema>;
 
+/** Assistance request to another unit: the holding unit keeps the case (assistance/service.py). */
+export const assistanceSchema = z.object({
+  to_unit: z.string().min(1, "Choose the unit you need help from."),
+  kind: z.enum(["VERIFICATION", "INFORMATION", "OPINION", "ACTION"]),
+  request: z.string().trim().min(10, "Say what you need from the other unit (at least 10 characters).").max(4000),
+  due_on: z.string(),
+});
+export type AssistanceForm = z.infer<typeof assistanceSchema>;
+
+/** Reply from the assisting unit: a response (complete) or a reason (decline / withdraw), 10+ characters. */
+export const assistanceReplySchema = z.object({
+  text: z.string().trim().min(10, "Write at least 10 characters.").max(4000),
+  suggested_unit: z.string(),
+});
+export type AssistanceReplyForm = z.infer<typeof assistanceReplySchema>;
+
+/** "Needs verification" on a coordination card: what to verify, by when (≤ 10 working days, checked by the API). */
+export const verificationSchema = z.object({
+  remarks: z.string().trim().min(10, "Say what must be verified (at least 10 characters).").max(2000),
+  verify_by: z.string(),
+});
+export type VerificationForm = z.infer<typeof verificationSchema>;
+
 export const guardReasonSchema = z.string().trim().min(10, "Record why this cannot wait for coordination (at least 10 characters).");

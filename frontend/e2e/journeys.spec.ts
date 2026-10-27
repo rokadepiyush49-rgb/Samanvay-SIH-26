@@ -154,6 +154,41 @@ test("7 · propose a transfer and accept it in the receiving unit", async ({ pag
   await expect(page.getByTestId("case-holder")).toHaveText("PGRC");
 });
 
+test("7b · ask another unit for assistance; it reads the case only while the request is open", async ({ page }) => {
+  await signInAs(page, "Rohit Verma");
+  const { items } = await apiGet<{ items: Row[] }>(page, "/cases?unit=RB&mine=true&status=REGISTERED&limit=20");
+  let caseNo: string | undefined;
+  for (const r of items.filter((x) => !STORY_CASES.has(x.case_no))) {
+    const d = await apiGet<{ can_request_assistance: boolean }>(page, `/cases/${r.case_no}`);
+    if (d.can_request_assistance) { caseNo = r.case_no; break; }
+  }
+  test.skip(!caseNo, "no RB case this officer can send for assistance");
+  await page.goto(`/cases/${caseNo}`);
+  await expect(page.getByTestId("routing-card")).toBeVisible();
+  await page.getByRole("toolbar", { name: "Case actions" }).getByRole("button", { name: "Request assistance" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Unit to ask").selectOption("AB");
+  await expect(dialog.getByTestId("mandate-hint")).toBeVisible();
+  await dialog.getByRole("textbox", { name: /^Request/ }).fill("Please share the approval record for this institution.");
+  await dialog.getByRole("button", { name: "Send request" }).click();
+  await expect(page.getByText(/sent to AB\. RB keeps the case/)).toBeVisible();
+  await expect(page.getByTestId("case-holder")).toHaveText("RB");
+
+  await signOut(page);
+  await signInAs(page, "Harpreet Gill");
+  await page.goto("/assistance");
+  const row = page.getByTestId("assistance-row").filter({ hasText: caseNo! });
+  await row.getByRole("button", { name: "Accept", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Accept and start" }).click();
+  await expect(page.getByText(/accepted\. You can read/)).toBeVisible();
+  expect((await apiGet<{ tier: string }>(page, `/cases/${caseNo}`)).tier).toBe("full");
+  await row.getByRole("button", { name: "Complete" }).click();
+  await page.getByRole("dialog").getByLabel("Response").fill("Approval record shared: approved intake 120 for 2025-26.");
+  await page.getByRole("dialog").getByRole("button", { name: "Send response" }).click();
+  await expect(page.getByText(/completed\. RB has your response/)).toBeVisible();
+  expect((await apiGet<{ tier: string }>(page, `/cases/${caseNo}`)).tier).toBe("metadata");
+});
+
 test("8 · the Action Conflict Guard stops a conflicting action until a reason or coordination", async ({ page }) => {
   await signInAs(page, "Dr Neha Iyer");
   await page.goto("/cases/SMV-2026-000001");

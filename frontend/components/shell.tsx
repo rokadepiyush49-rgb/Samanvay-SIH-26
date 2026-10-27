@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useApi } from "@/lib/api";
 import { can } from "@/lib/permissions";
 import { useSession } from "@/lib/session";
-import type { CoordinationList, NotificationList, Transfer } from "@/lib/types";
+import type { AssistanceList, CoordinationList, NotificationList, Transfer } from "@/lib/types";
 import { Brand, BrandStripe } from "./shell/brand";
 import { CommandPalette } from "./shell/command-palette";
 import { Sidebar, SidebarNav, type NavCounts } from "./shell/sidebar";
@@ -18,8 +18,14 @@ function useNavCounts(): NavCounts {
   const opts = { refreshInterval: 60000, revalidateOnFocus: false };
   const { data: coord } = useApi<CoordinationList>(can(me, "coordination.decide") ? "/coordination?status=open&mine=true&limit=200" : null, opts);
   const { data: transfers } = useApi<{ items: Transfer[] }>(can(me, "transfers.decide") ? "/transfers?direction=incoming&state=open&limit=100" : null, opts);
+  const { data: assist } = useApi<AssistanceList>(can(me, "assistance.respond") ? "/assistance?direction=incoming&state=open&limit=1" : null, opts);
   const { data: notes } = useApi<NotificationList>("/me/notifications?limit=8", { refreshInterval: 30000 });
-  return { coordination: coord?.counts.awaiting_me, transfers: transfers?.items.length, notifications: notes?.unread_total };
+  return {
+    coordination: coord?.counts.awaiting_me,
+    transfers: transfers?.items.length,
+    assistance: assist?.counts.awaiting_ack,
+    notifications: notes?.unread_total,
+  };
 }
 
 export function Shell({ children }: { children: ReactNode }) {

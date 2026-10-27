@@ -25,6 +25,8 @@ export function outstanding(c: CoordinationCard): string {
     return c.awaiting_me ? `${p.by_unit} proposed ${label(p.decision)} — your confirmation is needed` : `Awaiting ${other} to confirm ${p.by_unit}'s proposal`;
   }
   if (c.status === "ESCALATED") return "Escalated — the nodal officer or Competent Authority decides";
+  if (c.status === "VERIFYING" && c.verification)
+    return `${c.verification.by_unit} is verifying before a decision (by ${fmtDate(c.verification.verify_by)}); either unit can then propose`;
   return "Needs a proposal from either unit";
 }
 

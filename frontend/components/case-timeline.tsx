@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, CircleDot, FileText, Flag, MessageSquare, Network, ShieldAlert, TrendingUp, UserCheck } from "lucide-react";
+import { ArrowLeftRight, CircleDot, FileText, Flag, LifeBuoy, MessageSquare, Network, Route, ShieldAlert, TrendingUp, UserCheck } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { fmtDate, fmtDateTime, label } from "@/lib/format";
 import type { TimelineEvent } from "@/lib/types";
@@ -12,18 +12,21 @@ export const EVENT_LABEL: Record<string, string> = {
   COORDINATION_OPENED: "Coordination opened", COORDINATION_DECIDED: "Coordination decided", ESCALATED: "Escalated",
   SLA_ASSIGNED: "Timeline set", INSTITUTION_RESOLVED: "Institution confirmed", NOTE: "Internal note",
   INTERIM_REPLY_SENT: "Interim reply sent", NEXT_ACTION: "Next action set", DOCUMENT_ADDED: "Document added",
-  DOCUMENT_REJECTED: "Document rejected",
+  DOCUMENT_REJECTED: "Document rejected", COORDINATION_VERIFYING: "Verification requested before deciding",
+  ASSISTANCE_REQUESTED: "Assistance requested", ASSISTANCE_ACCEPTED: "Assistance accepted", ASSISTANCE_DECLINED: "Assistance declined",
+  ASSISTANCE_COMPLETED: "Assistance completed", ASSISTANCE_CANCELLED: "Assistance withdrawn",
 };
 
 type Kind = "all" | "actions" | "custody" | "coordination" | "notes";
 const KIND_OF = (t: string): Exclude<Kind, "all"> =>
   t.startsWith("TRANSFER") || t === "ASSIGNED" || t === "ESCALATED" ? "custody"
-    : t.startsWith("COORDINATION") ? "coordination"
+    : t.startsWith("COORDINATION") || t.startsWith("ASSISTANCE") ? "coordination"
       : ["NOTE", "INTERIM_REPLY_SENT", "NEXT_ACTION", "DOCUMENT_ADDED", "DOCUMENT_REJECTED"].includes(t) ? "notes" : "actions";
 
 function icon(t: string): { node: ReactNode; cls: string } {
   if (t.startsWith("TRANSFER")) return { node: <ArrowLeftRight size={14} aria-hidden />, cls: "bg-warn-soft text-warn" };
   if (t.startsWith("COORDINATION")) return { node: <Network size={14} aria-hidden />, cls: "bg-coord-soft text-coord" };
+  if (t.startsWith("ASSISTANCE")) return { node: <LifeBuoy size={14} aria-hidden />, cls: "bg-action-soft text-action" };
   if (t === "ESCALATED") return { node: <TrendingUp size={14} aria-hidden />, cls: "bg-danger-soft text-danger" };
   if (t === "ASSIGNED") return { node: <UserCheck size={14} aria-hidden />, cls: "bg-action-soft text-action" };
   if (t.startsWith("DOCUMENT")) return { node: <FileText size={14} aria-hidden />, cls: "bg-surface-2 text-muted" };
@@ -56,6 +59,17 @@ export function EventLine({ e }: { e: TimelineEvent }) {
         )}
         {e.type === "COORDINATION_OPENED" && <p className="mt-1 text-xs font-medium text-coord">{String(e.data.phrase ?? "")} · {String(e.data.coordination ?? "")}</p>}
         {e.type === "COORDINATION_DECIDED" && <p className="mt-1 text-xs">{label(String(e.data.decision))}{e.data.lead_unit ? `, ${e.data.lead_unit} leads` : ""}{e.data.joint_due ? ` · joint action by ${fmtDate(String(e.data.joint_due))}` : ""}</p>}
+        {e.type === "COORDINATION_VERIFYING" && <p className="mt-1 text-xs text-coord">{String(e.data.coordination ?? "")} · verify by {fmtDate(String(e.data.verify_by))}</p>}
+        {e.type.startsWith("ASSISTANCE") && (
+          <p className="mt-1 text-xs text-muted">
+            {String(e.data.assistance ?? "")}{e.data.to_unit ? ` · ${String(e.data.to_unit)}` : ""}{e.data.due_on ? ` · due ${fmtDate(String(e.data.due_on))}` : ""}
+            {e.data.suggested_unit ? ` · suggests ${String(e.data.suggested_unit)}` : ""}
+          </p>
+        )}
+        {(e.type === "TRANSFER_PROPOSED" || e.type === "ASSISTANCE_REQUESTED") && e.data.followed_recommendation === true && (
+          <p className="mt-1"><Badge tone="info" icon={<Route size={12} aria-hidden />}>Followed the routing check</Badge></p>
+        )}
+        {e.type === "TRANSFER_PROPOSED" && e.data.jurisdiction === "NONE" && <p className="mt-1 text-xs text-warn">No recorded mandate for the receiving unit (proposed directory)</p>}
         {e.type === "DOCUMENT_ADDED" && <p className="mt-1 font-mono text-[11px] text-muted">{String(e.data.filename)} · sha256 {String(e.data.sha256).slice(0, 16)}…</p>}
         {e.type === "SLA_ASSIGNED" && <p className="mt-1 text-xs text-muted">Policy {String(e.data.policy)} v{String(e.data.version)} · due {fmtDate(String(e.data.due))}</p>}
       </div>

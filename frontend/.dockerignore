@@ -1,0 +1,9 @@
+# Host-built artefacts must not enter the Linux image (native binaries, stale builds).
+node_modules
+.next
+.next-e2e
+out
+test-results
+playwright-report
+*.tsbuildinfo
+.env*

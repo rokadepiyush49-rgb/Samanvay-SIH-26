@@ -89,12 +89,13 @@ def _insert_timer(
     case_id=None,
     transfer_id=None,
     coordination_id=None,
+    assistance_id=None,
     payload: dict | None = None,
 ) -> None:
     db.execute(
         text(
-            "INSERT INTO timer (kind, due_at, case_id, transfer_id, coordination_id, payload, dedupe_key) "
-            "VALUES (:k, :d, :c, :t, :co, CAST(:p AS jsonb), :key) ON CONFLICT (dedupe_key) DO NOTHING"
+            "INSERT INTO timer (kind, due_at, case_id, transfer_id, coordination_id, assistance_id, payload, "
+            "dedupe_key) VALUES (:k, :d, :c, :t, :co, :a, CAST(:p AS jsonb), :key) ON CONFLICT (dedupe_key) DO NOTHING"
         ),
         {
             "k": kind,
@@ -102,6 +103,7 @@ def _insert_timer(
             "c": case_id,
             "t": transfer_id,
             "co": coordination_id,
+            "a": assistance_id,
             "p": json.dumps(payload or {}, default=str),
             "key": key,
         },
@@ -208,6 +210,42 @@ def cancel_transfer_timers(db: Session, transfer_id: uuid.UUID) -> None:
             "UPDATE timer SET cancelled_at = now() WHERE transfer_id = :t AND fired_at IS NULL AND cancelled_at IS NULL"
         ),
         {"t": transfer_id},
+    )
+
+
+def schedule_assistance_timers(
+    db: Session, assistance_id: uuid.UUID, case_id: uuid.UUID, start: dt.date, due_on: dt.date
+) -> None:
+    """Remind the receiving unit if it has not acknowledged within 2 working days; escalate if the due date passes."""
+    cal = get_calendar(db)
+    remind = cal.add_working_days(start, 2)
+    if remind < due_on:
+        _insert_timer(
+            db,
+            "ASSIST_REMINDER",
+            at_ist(remind),
+            f"assist:{assistance_id}:rem",
+            case_id=case_id,
+            assistance_id=assistance_id,
+        )
+    _insert_timer(
+        db,
+        "ASSIST_OVERDUE",
+        at_ist(cal.add_working_days(due_on, 1)),
+        f"assist:{assistance_id}:overdue",
+        case_id=case_id,
+        assistance_id=assistance_id,
+        payload={"due_on": due_on.isoformat()},
+    )
+
+
+def cancel_assistance_timers(db: Session, assistance_id: uuid.UUID, kinds: tuple[str, ...] | None = None) -> None:
+    db.execute(
+        text(
+            "UPDATE timer SET cancelled_at = now() WHERE assistance_id = :a AND fired_at IS NULL "
+            "AND cancelled_at IS NULL AND (CAST(:k AS text[]) IS NULL OR kind = ANY(CAST(:k AS text[])))"
+        ),
+        {"a": assistance_id, "k": list(kinds) if kinds else None},
     )
 
 

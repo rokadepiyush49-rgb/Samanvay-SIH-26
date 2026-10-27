@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, Bell, Clock, Network, TrendingUp, TriangleAlert } from "lucide-react";
+import { ArrowLeftRight, Bell, Clock, LifeBuoy, Network, TrendingUp, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { ago } from "@/lib/format";
 import type { Notification } from "@/lib/types";
@@ -11,6 +11,7 @@ export const FAMILY: Record<string, { label: string; icon: ReactNode }> = {
   COORDINATION: { label: "Coordination", icon: <Network size={16} aria-hidden /> },
   SLA: { label: "Deadline", icon: <Clock size={16} aria-hidden /> },
   TRANSFER: { label: "Transfer", icon: <ArrowLeftRight size={16} aria-hidden /> },
+  ASSISTANCE: { label: "Assistance", icon: <LifeBuoy size={16} aria-hidden /> },
   ESCALATION: { label: "Escalation", icon: <TrendingUp size={16} aria-hidden /> },
   SYSTEM: { label: "System", icon: <Bell size={16} aria-hidden /> },
 };

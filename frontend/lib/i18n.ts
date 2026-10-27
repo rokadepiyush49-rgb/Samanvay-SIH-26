@@ -16,6 +16,7 @@ export const STRINGS = {
   "nav.cases": { en: "All Cases", hi: "सभी मामले" },
   "nav.coordination": { en: "Coordination Centre", hi: "समन्वय केंद्र" },
   "nav.transfers": { en: "Transfers", hi: "स्थानांतरण" },
+  "nav.assistance": { en: "Assistance Requests", hi: "सहायता अनुरोध" },
   "nav.imports": { en: "Register Importer", hi: "रजिस्टर आयात" },
   "nav.institutions": { en: "Institution 360", hi: "संस्थान 360" },
   "nav.reports": { en: "Reports & Analytics", hi: "रिपोर्ट और विश्लेषण" },

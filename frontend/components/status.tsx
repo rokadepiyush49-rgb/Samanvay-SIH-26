@@ -65,6 +65,7 @@ export const OVERLAP_TYPE_NAME = Object.fromEntries(Object.entries(TYPE).map(([k
 const COORD_STATUS: Record<string, { tone: Tone; text: string }> = {
   OPEN: { tone: "warn", text: "Needs a proposal" },
   AWAITING_CONFIRMATION: { tone: "info", text: "Awaiting confirmation" },
+  VERIFYING: { tone: "coord", text: "Needs verification" },
   ESCALATED: { tone: "danger", text: "Escalated" },
   DECIDED: { tone: "ok", text: "Decided" },
 };

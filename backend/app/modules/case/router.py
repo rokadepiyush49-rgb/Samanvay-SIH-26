@@ -19,6 +19,7 @@ from app.modules.case import service, views
 from app.modules.coordination import guard
 from app.modules.coordination import service as coord
 from app.modules.policy.roles import CASE_VIEW_ROLES, CASEWORK_ROLES, CurrentUser
+from app.modules.routing import service as routing
 from app.modules.search.query import CaseFilters
 
 router = APIRouter(tags=["cases"])
@@ -236,6 +237,7 @@ def guard_choice(
 class TransferIn(BaseModel):
     to_unit: str = Field(max_length=20)
     reason: str = Field(min_length=3, max_length=2000)
+    followed_recommendation: bool = False
 
 
 @router.post("/cases/{case_ref}/transfers", status_code=201)
@@ -247,9 +249,22 @@ def propose_transfer(
     db: Session = Depends(get_db),
 ) -> dict:
     case = service.get_case(db, case_ref, for_update=True)
-    tr = service.propose_transfer(db, user, case, body.to_unit, body.reason, _version(if_match))
+    tr = service.propose_transfer(
+        db,
+        user,
+        case,
+        body.to_unit,
+        body.reason,
+        _version(if_match),
+        followed_recommendation=body.followed_recommendation,
+    )
     db.commit()
-    return {"transfer_id": str(tr.id), "status": "AWAITING_ACCEPTANCE", "case_status": case.status}
+    return {
+        "transfer_id": str(tr.id),
+        "status": "AWAITING_ACCEPTANCE",
+        "case_status": case.status,
+        "jurisdiction": routing.jurisdiction(db, tr.to_unit_id, case),
+    }
 
 
 _TRANSFERS = """

@@ -105,6 +105,46 @@ export type CaseDetail = CaseRow & {
   institution_candidates?: { institution_id: string; permanent_id: string; name: string; city: string; probability: number; reasons: Reason[] }[];
   sla_policy?: { code: string; version: number; name: string; day_basis: string; target_days: number; approval_status: string } | null;
   access_note?: string;
+  assistance: AssistanceRequest[];
+  can_request_assistance: boolean;
+  routing: RoutingRecommendation | null;
+};
+
+/** Bureau routing recommendation (backend/app/modules/routing/service.py): advisory, the officer decides. */
+export type RoutingAlternative = { unit: string; unit_name: string; score: number; mandate: "PRIMARY" | "SUPPORT" | null; reasons: Reason[] };
+export type RoutingRecommendation = {
+  model: string;
+  action: "KEEP" | "TRANSFER" | "ASSIST";
+  unit: string;
+  unit_name: string;
+  unit_type: "BUREAU" | "CELL" | "REGIONAL_OFFICE";
+  holder: string;
+  confidence: number;
+  ambiguous: boolean;
+  reasons: Reason[];
+  holder_reasons: Reason[];
+  alternatives: RoutingAlternative[];
+  coordinating: { unit: string; coordination: string }[];
+  note: string;
+};
+
+export type DirectoryEntry = {
+  id: string; code: string; name: string; region_id: number | null; category_code: string; category: string;
+  role: "PRIMARY" | "SUPPORT"; own_region_only: boolean; basis: string; approval_status: string;
+};
+
+export type AssistanceKind = "VERIFICATION" | "INFORMATION" | "OPINION" | "ACTION";
+export type AssistanceRequest = {
+  id: string; code: string; kind: AssistanceKind; kind_label: string; request: string; due_on: string; overdue: boolean;
+  status: "SENT" | "ACCEPTED" | "DECLINED" | "COMPLETED" | "CANCELLED"; requested_at: string; responded_at: string | null;
+  response: string | null; suggested_unit: string | null; row_version: number; followed_recommendation: boolean;
+  case_no: string; case_status: string; case_status_label: string; category: string;
+  institution: { name: string; permanent_id: string } | null; from_unit: string; to_unit: string; requested_by: string;
+  assignee: string | null; can_respond: boolean; can_cancel: boolean;
+};
+export type AssistanceList = {
+  items: AssistanceRequest[];
+  counts: { awaiting_ack: number; incoming_open: number; outgoing_open: number; overdue: number };
 };
 
 export type GuardResult = {
@@ -132,6 +172,7 @@ export type CoordinationCard = {
   probability: number; reasons: Reason[]; decide_by: string; working_days_left: number; proposal: Record<string, string | null> | null;
   row_version: number; institution: { name: string | null; permanent_id: string | null; city: string | null }; a: CoordSide; b: CoordSide;
   participant: boolean; awaiting_me: boolean; can_decide: boolean;
+  verification: { what: string; by: string; by_unit: string; verify_by: string; at: string } | null;
 };
 
 export type CoordinationRoom = CoordinationCard & {

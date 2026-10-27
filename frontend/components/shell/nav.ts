@@ -1,11 +1,11 @@
 import {
-  ArrowLeftRight, BarChart3, Bell, Building2, FileUp, Gauge, LayoutDashboard, ListChecks, type LucideIcon, Network,
+  ArrowLeftRight, BarChart3, Bell, Building2, FileUp, Gauge, LayoutDashboard, LifeBuoy, ListChecks, type LucideIcon, Network,
   ScrollText, Settings, ShieldCheck, Target, UserCog, Briefcase,
 } from "lucide-react";
 import { can, type Capability } from "@/lib/permissions";
 import type { Me } from "@/lib/types";
 
-export type NavItem = { href: string; key: string; icon: LucideIcon; cap?: Capability; badge?: "coordination" | "transfers" | "notifications" };
+export type NavItem = { href: string; key: string; icon: LucideIcon; cap?: Capability; badge?: "coordination" | "transfers" | "assistance" | "notifications" };
 export type NavGroup = { key: string; items: NavItem[] };
 
 /** One source for the sidebar, the command palette and the top-bar page context. */
@@ -18,6 +18,7 @@ export const NAV: NavGroup[] = [
       { href: "/cases", key: "nav.cases", icon: Briefcase, cap: "cases.view" },
       { href: "/coordination", key: "nav.coordination", icon: Network, cap: "coordination.view", badge: "coordination" },
       { href: "/transfers", key: "nav.transfers", icon: ArrowLeftRight, cap: "transfers.view", badge: "transfers" },
+      { href: "/assistance", key: "nav.assistance", icon: LifeBuoy, cap: "assistance.view", badge: "assistance" },
       { href: "/imports", key: "nav.imports", icon: FileUp, cap: "imports.run" },
     ],
   },

@@ -33,7 +33,9 @@ backend/app/
     case/        case ledger, FSM (transition_rule table), actions, custody handshake (transfers), assignment
     institution/ master, aliases, resolver (Fellegi–Sunter scorer)
     matching/    normalisation, reference extraction, text similarity backends, pair scoring, typing, alert policy
-    coordination/ coordination cards, two-party decisions, lead unit, room, escalation, Action Conflict Guard
+    coordination/ coordination cards, two-party decisions, "needs verification", lead unit, room, escalation, Action Conflict Guard
+    routing/     unit directory (mandates) and the routing check: keep / transfer / assist, with reasons (advisory)
+    assistance/  assistance requests between units (holding unit keeps the case), inbox, timers
     sla/         working-day calendar, versioned policies, timers, notifications outbox, e-mail sender
     documents/   upload pipeline (size, magic bytes, scan, hash), storage backends
     search/      typed-token query parser, filters, fuzzy + full-text search
@@ -150,6 +152,33 @@ sequenceDiagram
 ```
 
 If units do not decide within 3 working days the coordination escalates (timer) to the nodal officer / Competent Authority.
+Instead of deciding, either unit may record **needs verification** (status `VERIFYING`, ministry note p. 4): what must be
+verified and by when (≤ 10 working days). The card stays undecided — the guard still warns — any pending proposal is
+cleared, and the escalation timer moves to the verification date.
+
+## 6a. Inter-bureau routing and assistance (ministry note pp. 13–15)
+
+```mermaid
+flowchart LR
+  CASE[Open case in holding unit] --> DIR[Unit directory: PRIMARY / SUPPORT mandates per category,\nRegional Offices own region only]
+  CASE --> REL[Related cases held elsewhere\nparallel / duplicate / related / same institution]
+  CASE --> HIST[Transfers of this category\naccepted / returned, last 365 days]
+  DIR & REL & HIST --> SCORE[Score each unit, every point a reason]
+  SCORE --> REC{Routing check}
+  REC -->|holder has the mandate| KEEP[Keep]
+  REC -->|another unit holds the primary mandate,\nscore ≥ holder + 1.0| TR[Transfer → custody handshake]
+  REC -->|supporting unit ≥ 1.5, not already coordinating| AS[Assistance request]
+  AS --> A1[SENT] --> A2[ACCEPTED] --> A3[COMPLETED]
+  A1 & A2 --> A4[DECLINED with reason / suggested unit]
+  A1 & A2 --> A5[CANCELLED by requester]
+```
+
+The routing check is computed on demand for the holding unit (`routing/service.py`, model `routing-rules-v1`), never
+moves a case, and is labelled advisory: the directory (`unit_mandate`, migration 0003) is proposed data. A transfer or
+assistance request records whether the officer followed it and the receiving unit's mandate (`PRIMARY`/`SUPPORT`/`NONE`).
+An assistance request keeps custody with the holding unit; the assisting unit sees the case's content only while its
+request is `SENT` or `ACCEPTED` (`smv_case_full`, RLS). Timers: reminder if unacknowledged after 2 working days; escalation
+to both unit heads the working day after the due date.
 Every consequential action stores a `guard_check` row: the overlaps found, the officer's choice (open coordination,
 proceed and notify, cancel) and a mandatory reason when proceeding past an undecided overlap.
 
@@ -172,7 +201,7 @@ The `job` table is claimed with `FOR UPDATE SKIP LOCKED`; failures back off expo
 `region`, `unit`, `app_user`, `user_session`, `institution`, `institution_alias`, `category`, `category_compat`,
 `transition_rule`, `case_record` (metadata + custody), `case_content` (body, encrypted complainant contact, tsvector — RLS),
 `case_event` (append-only), `transfer`, `access_grant`, `document`, `case_link`, `coordination`, `coordination_message`,
-`guard_check`, `sla_policy`, `calendar_day` (working-day index), `holiday`, `timer`, `notification`, `job`,
+`guard_check`, `unit_mandate`, `assistance_request`, `sla_policy`, `calendar_day` (working-day index), `holiday`, `timer`, `notification`, `job`,
 `import_job`, `mapping_profile`, `text_vector`, `matching_model`, `report_snapshot`, `audit_event`, `audit_checkpoint`.
 
 Transaction boundaries (blueprint §20.4): case state change + event + audit + timer recalculation in one transaction;

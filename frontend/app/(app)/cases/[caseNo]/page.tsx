@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  ArrowLeftRight, Building2, CalendarClock, CheckCircle2, ClipboardList, FileText, GitMerge, History, Lock, MessageSquarePlus, Network,
-  ShieldAlert, Upload, UserRound,
+  ArrowLeftRight, Building2, CalendarClock, CheckCircle2, ClipboardList, FileText, GitMerge, History, LifeBuoy, Lock, MessageSquarePlus,
+  Network, ShieldAlert, Upload, UserRound,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -11,6 +11,7 @@ import { ActionDialog, NoteDialog, RevealDialog, TransferDecisionDialog, Transfe
 import { CaseTimeline, EventLine } from "@/components/case-timeline";
 import { GuardDialog } from "@/components/conflict-guard";
 import { Require } from "@/components/require";
+import { AssistanceDialog, AssistancePanel, RoutingCard, type RoutingPreset } from "@/components/routing";
 import { CaseFlags, CoordinationStatusBadge, EvidenceList, OverlapTypeBadge, StatusBadge } from "@/components/status";
 import { useToast } from "@/components/toast";
 import {
@@ -27,6 +28,7 @@ type Tab = "overview" | "timeline" | "documents" | "links";
 const TIMER_LABEL: Record<string, string> = {
   SLA_REMINDER: "Reminder", SLA_INTERIM: "Interim reply due", SLA_BREACH: "Overdue from", SLA_ESCALATION: "Escalation",
   JOINT_DUE: "Joint action due", TRANSFER_REMINDER: "Transfer reminder", TRANSFER_ESCALATION: "Transfer escalation",
+  ASSIST_REMINDER: "Assistance reminder", ASSIST_OVERDUE: "Assistance overdue from",
 };
 
 function Fact({ icon, label: l, children, sub }: { icon: ReactNode; label: string; children: ReactNode; sub?: ReactNode }) {
@@ -74,13 +76,13 @@ function CaseSummaryHeader({ c }: { c: CaseDetail }) {
   );
 }
 
-function ActionBar({ c, onAction, onGuard, onTransfer, onNote, onUpload }:
-  { c: CaseDetail; onAction: (a: AllowedAction) => void; onGuard: (a: AllowedAction) => void; onTransfer: () => void; onNote: () => void; onUpload: () => void }) {
+function ActionBar({ c, onAction, onGuard, onTransfer, onAssist, onNote, onUpload }:
+  { c: CaseDetail; onAction: (a: AllowedAction) => void; onGuard: (a: AllowedAction) => void; onTransfer: () => void; onAssist: () => void; onNote: () => void; onUpload: () => void }) {
   const { me } = useSession();
   const holder = c.holding_unit.code === me.unit.code;
   const canNote = holder && c.tier === "full";
   const canUpload = c.tier === "full" && can(me, "cases.create");
-  if (c.allowed_actions.length === 0 && !c.can_transfer && !canNote && !canUpload) {
+  if (c.allowed_actions.length === 0 && !c.can_transfer && !c.can_request_assistance && !canNote && !canUpload) {
     return <p className="flex items-center gap-2 text-sm text-muted"><Lock size={14} aria-hidden />You can view this case. Only {c.holding_unit.code} records actions on it.</p>;
   }
   return (
@@ -93,6 +95,7 @@ function ActionBar({ c, onAction, onGuard, onTransfer, onNote, onUpload }:
           </Button>
         ))}
         {c.can_transfer && <Button variant="secondary" onClick={onTransfer} icon={<ArrowLeftRight size={15} aria-hidden />}>Transfer</Button>}
+        {c.can_request_assistance && <Button variant="secondary" onClick={onAssist} icon={<LifeBuoy size={15} aria-hidden />}>Request assistance</Button>}
         {canNote && <Button variant="secondary" onClick={onNote} icon={<MessageSquarePlus size={15} aria-hidden />}>Add note / interim reply</Button>}
         {canUpload && <Button variant="secondary" onClick={onUpload} icon={<Upload size={15} aria-hidden />}>Upload document</Button>}
       </div>
@@ -158,11 +161,14 @@ function Alerts({ c, onDecide, run }: { c: CaseDetail; onDecide: (m: "accept" | 
   );
 }
 
-function Overview({ c, onReveal }: { c: CaseDetail; onReveal: () => void }) {
+function Overview({ c, onReveal, onTransfer, onAssist, onChanged }:
+  { c: CaseDetail; onReveal: () => void; onTransfer: (p: RoutingPreset) => void; onAssist: (p: RoutingPreset | null) => void; onChanged: (msg: string) => void }) {
   const custody = c.timeline.filter((e) => e.type.startsWith("TRANSFER") || e.type === "ESCALATED" || e.type === "ASSIGNED").sort((a, b) => b.at.localeCompare(a.at));
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="flex min-w-0 flex-col gap-5">
+        <RoutingCard c={c} onTransfer={onTransfer} onAssist={onAssist} />
+        {(c.assistance.length > 0 || c.can_request_assistance) && <AssistancePanel c={c} onAsk={() => onAssist(null)} onChanged={onChanged} />}
         {c.tier === "metadata" ? (
           <Card>
             <div className="flex items-start gap-3" data-testid="metadata-only">
@@ -296,6 +302,8 @@ function Workspace() {
   const [action, setAction] = useState<AllowedAction | null>(null);
   const [guardAction, setGuardAction] = useState<AllowedAction | null>(null);
   const [transfer, setTransfer] = useState(false);
+  const [assist, setAssist] = useState(false);
+  const [preset, setPreset] = useState<RoutingPreset | null>(null);
   const [decide, setDecide] = useState<"accept" | "return" | null>(null);
   const [note, setNote] = useState(false);
   const [reveal, setReveal] = useState(false);
@@ -313,7 +321,7 @@ function Workspace() {
 
   const setTab = (t: Tab) => router.replace(`${pathname}${t === "overview" ? "" : `?tab=${t}`}`, { scroll: false });
   const done = (msg?: string) => {
-    setAction(null); setGuardAction(null); setTransfer(false); setNote(false); setDecide(null);
+    setAction(null); setGuardAction(null); setTransfer(false); setAssist(false); setPreset(null); setNote(false); setDecide(null);
     if (msg) toast({ kind: "success", title: msg });
     void mutate();
   };
@@ -339,7 +347,8 @@ function Workspace() {
         meta={<><span>{CHANNEL_LABEL[c.channel] ?? c.channel}</span>{c.source_ref && <span className="font-mono">{c.source_ref}</span>}<span>Received {fmtDate(c.received_on)}</span><span>Last action {label(c.last_action)}</span></>} />
 
       <CaseSummaryHeader c={c} />
-      <ActionBar c={c} onAction={setAction} onGuard={setGuardAction} onTransfer={() => setTransfer(true)} onNote={() => setNote(true)} onUpload={() => fileRef.current?.click()} />
+      <ActionBar c={c} onAction={setAction} onGuard={setGuardAction} onTransfer={() => { setPreset(null); setTransfer(true); }}
+        onAssist={() => { setPreset(null); setAssist(true); }} onNote={() => setNote(true)} onUpload={() => fileRef.current?.click()} />
       <input ref={fileRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.csv,.txt" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
       <ErrorNote error={opError} />
       <Alerts c={c} onDecide={setDecide} run={run} />
@@ -352,7 +361,10 @@ function Workspace() {
           { value: "links", label: "Linked cases", count: c.links.length, icon: <GitMerge size={15} aria-hidden /> },
         ]} />
         <TabPanel idBase="case" value={tab}>
-          {tab === "overview" && <Overview c={c} onReveal={() => setReveal(true)} />}
+          {tab === "overview" && (
+            <Overview c={c} onReveal={() => setReveal(true)} onChanged={(msg) => done(msg)}
+              onTransfer={(p) => { setPreset(p); setTransfer(true); }} onAssist={(p) => { setPreset(p); setAssist(true); }} />
+          )}
           {tab === "timeline" && <Card><CaseTimeline events={c.timeline} /></Card>}
           {tab === "documents" && <Documents c={c} onUpload={() => fileRef.current?.click()} />}
           {tab === "links" && <Links c={c} />}
@@ -361,7 +373,11 @@ function Workspace() {
 
       <ActionDialog key={`a-${action?.action}`} caseNo={c.case_no} version={c.row_version} action={action} onClose={() => setAction(null)} onDone={() => done(`${action?.label} recorded.`)} />
       <GuardDialog key={`g-${guardAction?.action}-${c.row_version}`} caseNo={c.case_no} action={guardAction} onClose={() => { setGuardAction(null); void mutate(); }} onDone={(m) => done(m)} />
-      <TransferDialog caseNo={c.case_no} version={c.row_version} holder={c.holding_unit.code} open={transfer} onClose={() => setTransfer(false)} onDone={(to) => done(`Transfer to ${to} proposed. Custody stays with ${c.holding_unit.code} until ${to} accepts.`)} />
+      <TransferDialog key={`tr-${preset?.unit ?? ""}-${transfer}`} caseNo={c.case_no} version={c.row_version} holder={c.holding_unit.code} open={transfer}
+        preset={preset} category={c.category.code} region={c.region_id} recommendedUnit={c.routing?.action === "TRANSFER" ? c.routing.unit : undefined}
+        onClose={() => { setTransfer(false); setPreset(null); }} onDone={(to) => done(`Transfer to ${to} proposed. Custody stays with ${c.holding_unit.code} until ${to} accepts.`)} />
+      <AssistanceDialog key={`as-${preset?.unit ?? ""}-${assist}`} c={c} open={assist} preset={preset}
+        onClose={() => { setAssist(false); setPreset(null); }} onDone={(msg) => done(msg)} />
       {c.pending_transfer && decide && (
         <TransferDecisionDialog mode={decide} transfer={{ ...c.pending_transfer, case_no: c.case_no }} onClose={() => setDecide(null)} onDone={(m) => done(m)} />
       )}

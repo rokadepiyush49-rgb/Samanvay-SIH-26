@@ -17,7 +17,8 @@ from app.core.jobs import enqueue
 from app.models import ImportJob, MappingProfile
 from app.modules.audit import chain
 from app.modules.auth.deps import current_user
-from app.modules.documents.router import _safe_filename, read_limited
+from app.modules.documents.router import read_limited
+from app.modules.documents.service import safe_filename
 from app.modules.documents.storage import new_key, scan, store
 from app.modules.imports import service
 from app.modules.policy.roles import INTAKE_ROLES, CurrentUser
@@ -66,7 +67,7 @@ def preview(
 ) -> dict:
     user.require(INTAKE_ROLES, "import registers")
     data = read_limited(file, MAX_MB * 1024 * 1024)
-    return service.preview(db, data, _safe_filename(file.filename or "register.csv"))
+    return service.preview(db, data, safe_filename(file.filename or "register.csv"))
 
 
 @router.post("", status_code=202)
@@ -82,7 +83,7 @@ def start(
     except (ValueError, ValidationError) as exc:
         raise invalid("The mapping profile is not valid JSON.", detail_errors=str(exc)[:500]) from None
     data = read_limited(file, MAX_MB * 1024 * 1024)
-    filename = _safe_filename(file.filename or "register.csv")
+    filename = safe_filename(file.filename or "register.csv")
     service.read_table(data, filename)  # fail fast on unreadable files
     result = scan(data)
     if result.status != "CLEAN":

@@ -3,13 +3,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeftRight, CheckCircle2, Undo2 } from "lucide-react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { api, useApi } from "@/lib/api";
 import {
   actionSchema, noteSchema, returnTransferSchema, transferSchema, type ActionForm, type NoteForm, type ReturnTransferForm, type TransferForm,
 } from "@/lib/schemas";
 import { useUnsavedChanges } from "@/lib/session";
 import type { AllowedAction, Meta } from "@/lib/types";
+import { MandateHint, useMandate, type RoutingPreset } from "./routing";
 import { Button, ErrorNote, Field, Modal, cx, fieldA11y, inputCls } from "./ui";
 
 /** Plain state-machine action (not consequential): remarks when required, optional next action. */
@@ -49,16 +50,27 @@ export function ActionDialog({ caseNo, version, action, onClose, onDone }: { cas
   );
 }
 
-export function TransferDialog({ caseNo, version, holder, open, onClose, onDone }: { caseNo: string; version: number; holder: string; open: boolean; onClose: () => void; onDone: (to: string) => void }) {
+/** Custody handshake. `preset` comes from the routing check; the mandate hint shows the unit directory's view of the
+ * chosen unit (advisory: the receiving unit can still return the case). */
+export function TransferDialog({ caseNo, version, holder, open, onClose, onDone, preset, category, region, recommendedUnit }:
+  { caseNo: string; version: number; holder: string; open: boolean; onClose: () => void; onDone: (to: string) => void;
+    preset?: RoutingPreset | null; category?: string; region?: number | null; recommendedUnit?: string }) {
   const { data: meta } = useApi<Meta>(open ? "/meta" : null);
+  const mandate = useMandate(open ? category : undefined, region);
   const [error, setError] = useState<unknown>(null);
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } = useForm<TransferForm>({ resolver: zodResolver(transferSchema), defaultValues: { to_unit: "", reason: "" } });
+  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting, isDirty } } = useForm<TransferForm>({
+    resolver: zodResolver(transferSchema), defaultValues: { to_unit: preset?.unit ?? "", reason: preset?.text ?? "" },
+  });
   useUnsavedChanges(`transfer-${caseNo}`, open && isDirty);
+  const unit = useWatch({ control, name: "to_unit" });
   const close = () => { reset(); setError(null); onClose(); };
   const submit = handleSubmit(async (v) => {
     setError(null);
     try {
-      await api(`/cases/${caseNo}/transfers`, { json: v, headers: { "if-match": String(version) } });
+      await api(`/cases/${caseNo}/transfers`, {
+        json: { ...v, followed_recommendation: !!preset && !!recommendedUnit && v.to_unit === recommendedUnit },
+        headers: { "if-match": String(version) },
+      });
       reset();
       onDone(v.to_unit);
     } catch (e) {
@@ -76,6 +88,7 @@ export function TransferDialog({ caseNo, version, holder, open, onClose, onDone 
             {meta?.units.filter((u) => u.code !== holder).map((u) => <option key={u.code} value={u.code}>{u.code} — {u.name}</option>)}
           </select>
         </Field>
+        {category && <MandateHint entry={unit ? mandate(unit) : null} unit={unit} />}
         <Field id="t-reason" label="Reason for transfer" required error={errors.reason?.message} hint="The receiving unit reads this before accepting.">
           <textarea {...register("reason")} {...fieldA11y("t-reason", errors.reason?.message, true)} className={cx(inputCls, "min-h-24")} />
         </Field>

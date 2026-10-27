@@ -26,7 +26,8 @@ OVERSIGHT = (Role.NODAL_OFFICER, Role.COMPETENT_AUTHORITY, Role.SENIOR_MGMT, Rol
 
 _CARDS = """
 SELECT co.id, co.code, co.status, co.decision, co.decide_by, co.created_at, co.proposal, co.proposed_unit_id,
-       co.row_version, lu.code AS lead_unit, l.link_type, l.probability, l.reasons, l.status AS link_status,
+       co.row_version, co.verification, lu.code AS lead_unit, l.link_type, l.probability, l.reasons,
+       l.status AS link_status,
        a.id AS a_id, a.case_no AS a_no, a.status AS a_status, au.code AS a_unit, a.holding_unit_id AS a_unit_id,
        a.holding_officer_id AS a_officer_id, aoff.full_name AS a_officer, acat.name AS a_category,
        a.received_on AS a_received, a.holder_since AS a_since,
@@ -83,6 +84,7 @@ def _card(r, user: CurrentUser, cal, today: dt.date) -> dict:
         "working_days_left": cal.working_days_between(today, r.decide_by),
         "created_at": r.created_at.isoformat(),
         "proposal": r.proposal,
+        "verification": r.verification,
         "row_version": r.row_version,
         "institution": {"name": r.inst_name, "permanent_id": r.permanent_id, "city": r.inst_city},
         "a": side("a"),
@@ -106,7 +108,7 @@ def list_cards(
 ) -> dict:
     where, p = [], {"u": user.unit_id}
     if status == "open":
-        where.append("co.status IN ('OPEN', 'AWAITING_CONFIRMATION', 'ESCALATED')")
+        where.append("co.status IN ('OPEN', 'AWAITING_CONFIRMATION', 'VERIFYING', 'ESCALATED')")
     elif status == "decided":
         where.append("co.status = 'DECIDED'")
     elif status == "escalated":
@@ -225,6 +227,27 @@ def confirm(
     co = svc.confirm(db, user, co, _version(if_match))
     db.commit()
     return {"coordination": co.code, "status": co.status, "decision": co.decision}
+
+
+class VerificationIn(BaseModel):
+    remarks: str = Field(min_length=1, max_length=2000)
+    verify_by: dt.date | None = None
+
+
+@router.post("/{code}/verification")
+def needs_verification(
+    code: str,
+    body: VerificationIn,
+    if_match: str | None = Header(default=None),
+    user: CurrentUser = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    co = svc.get_coordination(db, code, lock=True)
+    co = svc.request_verification(
+        db, user, co, remarks=body.remarks, verify_by=body.verify_by, expected_version=_version(if_match)
+    )
+    db.commit()
+    return {"coordination": co.code, "status": co.status, "decide_by": co.decide_by.isoformat()}
 
 
 class EscalateIn(BaseModel):

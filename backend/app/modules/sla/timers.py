@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import CaseRecord, Coordination, Timer, Transfer
+from app.models import AssistanceRequest, CaseRecord, Coordination, Timer, Transfer
 from app.modules.audit import chain
 from app.modules.case import fsm
 from app.modules.sla import notify as nt
@@ -154,6 +154,42 @@ def _fire(db: Session, t: Timer) -> None:
                 family="ESCALATION",
                 severity="CRITICAL",
                 title=f"Transfer of {case.case_no} not accepted in 5 working days",
+                link=nt.case_link(case.case_no),
+                case_id=case.id,
+                key=f"timer:{t.id}",
+            )
+    elif t.kind in ("ASSIST_REMINDER", "ASSIST_OVERDUE"):
+        req = db.get(AssistanceRequest, t.assistance_id)
+        if req is None or req.status not in ("SENT", "ACCEPTED"):
+            return
+        case = db.get(CaseRecord, req.case_id)
+        if case is None or case.status in fsm.TERMINAL:
+            return
+        if t.kind == "ASSIST_REMINDER":
+            if req.status != "SENT":
+                return
+            nt.notify(
+                db,
+                nt.unit_officers(db, req.to_unit_id),
+                family="ASSISTANCE",
+                severity="WARNING",
+                title=f"{req.code} on {case.case_no} still awaits acknowledgement (2 working days)",
+                link=nt.case_link(case.case_no),
+                case_id=case.id,
+                key=f"timer:{t.id}",
+            )
+        else:
+            nt.notify(
+                db,
+                [
+                    req.requested_by,
+                    req.assignee_id,
+                    *nt.unit_heads(db, req.to_unit_id),
+                    *nt.unit_heads(db, req.from_unit_id),
+                ],
+                family="ESCALATION",
+                severity="CRITICAL",
+                title=f"Assistance {req.code} on {case.case_no} is overdue (due {req.due_on.strftime('%d-%m-%Y')})",
                 link=nt.case_link(case.case_no),
                 case_id=case.id,
                 key=f"timer:{t.id}",

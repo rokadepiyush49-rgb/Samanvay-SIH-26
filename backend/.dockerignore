@@ -1,0 +1,10 @@
+# The image builds its own virtualenv with uv; host caches and tests stay out.
+.venv
+.pytest_cache
+.ruff_cache
+.hypothesis
+**/__pycache__
+*.pyc
+tests
+var
+.env*
