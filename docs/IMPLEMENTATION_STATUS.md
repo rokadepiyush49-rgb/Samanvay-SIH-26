@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: 27 Oct 2026 (scope audit; Phase 0 verification and Phase 1 routing & assistance). Source of truth for scope: the *Samanvay Solution Blueprint* artifact (31 sections, 51 requirements).
+Last updated: 28 Oct 2026 (case messaging, case assistant, institutional case graph; earlier: scope audit, Phase 0 verification and Phase 1 routing & assistance). Source of truth for scope: the *Samanvay Solution Blueprint* artifact (31 sections, 51 requirements).
 Status values: **Completed**, **In progress**, **Not started**, **Blocked**. "Completed" means implemented, exercised by an
 automated test or by the browser walkthrough below, and not a mock.
 
@@ -8,7 +8,7 @@ automated test or by the browser walkthrough below, and not a mock.
 
 | Check | Result |
 |---|---|
-| Backend tests (`uv run pytest`, real PostgreSQL 17, fresh `samanvay_test` DB from migrations 0001–0003) | **55 passed**, 0 failed (27 Oct; +7 in `test_routing_assistance`) |
+| Backend tests (`uv run pytest`, real PostgreSQL 17, fresh `samanvay_test` DB from migrations 0001–0005) | **65 passed**, 0 failed (28 Oct; +5 in `test_messages_assistant`) |
 | Backend lint / format (`ruff check`, `ruff format --check`) | clean |
 | Frontend `tsc --noEmit`, `eslint .` | 0 errors, 0 warnings |
 | Frontend unit tests (`pnpm test`, Vitest) | **25 passed** (+2 for assistance and verification forms) |
@@ -44,7 +44,9 @@ all other overlap kinds are ≥ 0.93. Precision meets the 0.80 target.
 | 12 | RBAC + ABAC tiers + PostgreSQL RLS, sealed categories, reveal-with-reason | Completed | migration `0001` (RLS functions/policies, grants), `policy/roles.py`, `case/views.py` | `test_access_tiers` (5 tests incl. raw-SQL RLS bypass attempt) | Role matrix covered by targeted tests, not the full 120-case matrix. Time-boxed access grants exist in the schema and RLS but have no UI/API to issue them yet. |
 | 13 | Hash-chained audit, Ed25519-signed Merkle checkpoints, verifier, insert-only roles | Completed | `audit/chain.py`, `audit/router.py` | `test_audit_chain_verifies_and_detects_tampering` | Signing key from env; production should hold it in a KMS/HSM. RFC 3161 timestamping not built. |
 | 14 | Accessibility and Hindi | In progress | `frontend/*`, `lib/i18n.ts`, `lib/session.tsx` | lint rules, Playwright journeys use role/label queries | Hindi for navigation, titles and common actions; status always icon + text; labelled fields with error messages; ARIA tabs with arrow keys; Radix dialogs manage focus; skip link; text-size and reduce-motion preferences; no page-level horizontal overflow at 375 px on the pages checked. axe-core and a screen-reader pass not run. |
-| 15 | Bounded LLM agents, breach-risk model, complainant lookup | Not started | — | — | Optional by design; the core never depends on them. Next: AI copilot (summary, match explanation, category suggestion) and an officer-facing regulations RAG (scope audit, 27 Oct). |
+| 15 | Bounded LLM agents, breach-risk model, complainant lookup | In progress | `copilot/*` (knowledge, retrieval, engine, router), `components/case-assistant.tsx` | `test_assistant_summary_and_answers_cite_the_case_file`, `test_assistant_never_sees_more_than_the_officer`, browser walkthrough 28 Oct | **Case assistant** (case page → AI assistant): a summary and Q&A over the case file as the officer may see it plus 14 passages restating Samanvay's configured rules (not regulation text); BM25 retrieval; every statement cites passage IDs, shown beside the answer; missing-information check; audit entries `ai.summary` / `ai.question` (question hashed). `AI_PROVIDER=offline` (default) composes text from the passages with rules, no model; `AI_PROVIDER=anthropic` sends the same passages to Claude (`AI_MODEL`, default `claude-opus-5-5`, structured JSON output, server-side refusal fallback) and falls back to offline on any failure. **The Claude path has not been run against the live API.** Breach-risk model and complainant lookup not built. |
+| 18 | Secure case-linked messaging (ministry note p. 16) | Completed | migration `0005` (`case_message`, RLS, insert-only grants), `messages/*`, `components/case-messages.tsx` | `test_thread_follows_case_access_and_keeps_text_out_of_notifications`, `test_messages_are_insert_only_for_the_api_role`, `test_holding_unit_turns_a_message_into_a_task`, browser walkthrough 28 Oct | Thread per case; read/write = `smv_case_full` (holder, coordinating units, open assistance, pending transfer, role-wide readers); writing needs a case-working role and an open case. SHA-256 of each body in the audit chain; notifications (holder, earlier authors, coordinating officers, assisting unit) carry the case number and unit only. Holding unit can turn a message into a task. Polling every 15 s; no attachments in messages (use Documents). |
+| 19 | Institutional case graph | Completed (view) | `components/case-graph.tsx`, Institution 360 → Case graph | browser walkthrough 28 Oct | Built from the existing Institution 360 payload (cases, links, clusters); deterministic force layout fitted to the canvas; colour = holding unit, link colour = overlap type, dashed = proposed, thicker = across units; filters, neighbour highlight, cross-unit link list. Capped by the 100-case Institution 360 list. |
 | 16 | Inter-bureau routing check and unit directory (ministry note pp. 13–15) | Completed (rules) | `routing/service.py`, migration `0003` (`unit_mandate`), `components/routing.tsx` | `test_routing_assistance` (directory, transfer recommendation, keep, jurisdiction recorded) | Rules-first, advisory: mandate (primary 3.0 / support 1.0), related cases held, transfer history, holder preference. Directory is proposed v0. No AI text classifier yet; recommendations are computed on demand, not stored (whether the officer followed one is recorded on the transfer / request). |
 | 17 | Assistance requests — holding unit keeps the case (ministry routing action B) | Completed | `assistance/*`, migration `0003` (`assistance_request`, `smv_case_full` clause), `app/(app)/assistance`, `components/routing.tsx` | `test_routing_assistance` (lifecycle, access only while open, decline + suggestion, sealed refused, overdue escalates once), Playwright journey 7b | SENT → ACCEPTED → COMPLETED / DECLINED / CANCELLED; reminder at 2 working days, escalation after the due date. No head-approval step before sending. |
 | 05b | "Needs verification" coordination outcome (ministry note p. 4) | Completed | `coordination/service.py` (`request_verification`), coordination page | `test_needs_verification_keeps_the_card_undecided` | Status `VERIFYING`; ≤ 10 working days; guard still warns; escalates if undecided. |
@@ -81,9 +83,9 @@ assistance, needs verification) are done. Next, in order:
 1. Phase 2 — turn on multilingual embeddings for the demo (bundle the model), case tasks (owner, due, status,
    dependencies), Institution Case Graph view, recurring-issue clustering, category-wise and overlap-trend reports,
    per-officer workload.
-2. Phase 3 — AI copilot behind a flag on synthetic data (case summary, coordination brief, match explanation, category
-   suggestion, missing-information check; citations to event IDs; human approves), then an officer-facing RAG over a
-   curated set of public regulations.
+2. Phase 3 — case summary, Q&A with citations and the missing-information check exist (SOL 15, offline by default).
+   Still to do: run the Claude path with a key on synthetic data and compare with offline; coordination brief, match
+   explanation and category suggestion; extend the knowledge base with curated public regulations (cited by clause).
 3. Run CI on a remote.
 4. Mentor validation of statuses, categories, timelines, sealed categories and consequential actions (blueprint §4.4, Q1–Q12); update migration `0002` data accordingly.
 5. Tune embedding-backend text bands on cross-lingual pairs (Hindi–English recall is the remaining gap to R ≥ 0.85).

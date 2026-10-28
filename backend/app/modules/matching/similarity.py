@@ -61,11 +61,17 @@ class NgramBackend:
 class EmbeddingBackend:
     cross_lingual = True
     bands = (0.85, 0.75, 0.60)
+    # Hindi–English pairs score lower than same-language paraphrases. Chosen on the calibration seed (2027) only: at
+    # 0.65 no unrelated cross-language candidate pair scores as high; at 0.55, 4% do while 86% of true pairs pass.
+    cross_bands = (0.65, 0.55, 0.48)
 
     def __init__(self, model_name: str) -> None:
         from sentence_transformers import SentenceTransformer  # optional dependency
 
-        self.model = SentenceTransformer(model_name, device="cpu")
+        try:  # cached copy first, so a demo laptop with no network still matches Hindi with English
+            self.model = SentenceTransformer(model_name, device="cpu", local_files_only=True)
+        except OSError:
+            self.model = SentenceTransformer(model_name, device="cpu")
         self.name = f"st:{model_name.split('/')[-1]}"
         self._lock = threading.Lock()
 

@@ -805,6 +805,56 @@ STORY_CASES = [
         "complainant": ("Farhan Shaikh", "9011223344"),
         "next_action": "Await institute's reply",
     },
+    # Earlier certificate complaints about the Nashik campus, so the story shows a recurring pattern (S1 + S6 + S7/S8
+    # = three separate incidents; S8 repeats S7's incident and counts once).
+    {
+        "key": "S6",
+        "unit": "PGRC",
+        "officer": "lakshmi.nair",
+        "pid": "1-9990001234",
+        "category": "GRV_CERTIFICATE",
+        "channel": "EMAIL",
+        "received_on": dt.date(2026, 3, 12),
+        "status": "DISPOSED",
+        "disposed_on": dt.date(2026, 4, 6),
+        "subject": "Original B.Tech certificate withheld — Sahyadri Valley Institute of Engineering, Nashik",
+        "body": "Sahyadri Valley Institute of Engineering, Nashik is withholding my original B.Tech degree certificate and "
+        "mark sheets against hostel dues of Rs. 35,000 that I have disputed. (Disposed: the institute returned the "
+        "certificate on 03/04/2026 after PGRC's letter.)",
+        "complainant": ("Snehal Patil", "9822100331"),
+    },
+    {
+        "key": "S7",
+        "unit": "PGRC",
+        "officer": "lakshmi.nair",
+        "pid": "1-9990001234",
+        "category": "GRV_CERTIFICATE",
+        "channel": "CPGRAMS",
+        "received_on": dt.date(2026, 6, 20),
+        "status": "DISPOSED",
+        "disposed_on": dt.date(2026, 7, 14),
+        "source_ref": "AICTE/E/2026/0007431",
+        "subject": "Degree certificate not issued — Sahyadri Valley Institute of Engineering, Nashik",
+        "body": "Sahyadri Valley Institute of Engineering, Nashik has not issued my provisional and degree certificates "
+        "since the results in May 2026 and demands a development fee of Rs. 28,000 first. (Disposed: certificates "
+        "issued on 10/07/2026.)",
+        "complainant": ("Aditya Kulkarni", "9767200442"),
+    },
+    {
+        "key": "S8",
+        "unit": "PGRC",
+        "officer": "lakshmi.nair",
+        "pid": "1-9990001234",
+        "category": "GRV_CERTIFICATE",
+        "channel": "EMAIL",
+        "received_on": dt.date(2026, 6, 24),
+        "status": "DISPOSED",
+        "disposed_on": dt.date(2026, 7, 14),
+        "subject": "Reminder: certificates still withheld — Sahyadri Valley Institute of Engineering, Nashik",
+        "body": "Further to my CPGRAMS grievance AICTE/E/2026/0007431, Sahyadri Valley Institute of Engineering, Nashik "
+        "still withholds my provisional and degree certificates and insists on the Rs. 28,000 development fee.",
+        "complainant": ("Aditya Kulkarni", "9767200442"),
+    },
 ]
 
 # The live demo complaint (blueprint §27 step 1): entered by the PGRC intake officer during the demo.

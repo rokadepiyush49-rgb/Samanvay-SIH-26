@@ -249,6 +249,33 @@ def cancel_assistance_timers(db: Session, assistance_id: uuid.UUID, kinds: tuple
     )
 
 
+def schedule_task_timers(db: Session, task_id: uuid.UUID, case_id: uuid.UUID, due_on: dt.date) -> None:
+    """Remind the owner the working day before a task is due, and flag it the working day after."""
+    cal = get_calendar(db)
+    for kind, day in (
+        ("TASK_DUE", cal.add_working_days(due_on, -1)),
+        ("TASK_OVERDUE", cal.add_working_days(due_on, 1)),
+    ):
+        _insert_timer(
+            db,
+            kind,
+            at_ist(day),
+            f"task:{task_id}:{kind}:{due_on}",
+            case_id=case_id,
+            payload={"task_id": str(task_id), "due_on": due_on.isoformat()},
+        )
+
+
+def cancel_task_timers(db: Session, task_id: uuid.UUID) -> None:
+    db.execute(
+        text(
+            "UPDATE timer SET cancelled_at = now() WHERE payload->>'task_id' = :t AND fired_at IS NULL "
+            "AND cancelled_at IS NULL"
+        ),
+        {"t": str(task_id)},
+    )
+
+
 def schedule_coordination_timer(db: Session, coordination_id: uuid.UUID, decide_by: dt.date) -> None:
     _insert_timer(
         db,

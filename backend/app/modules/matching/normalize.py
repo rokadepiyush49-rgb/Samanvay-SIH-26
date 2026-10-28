@@ -361,9 +361,13 @@ STOPWORDS = {
 }
 
 
+# Python's \w does not match Devanagari vowel signs and viramas (combining marks), so a plain [^\w\s] filter shreds
+# Hindi words ("महोदय" → "मह दय"). Keep the whole Devanagari block except the danda punctuation (U+0964–U+0965).
+NON_WORD = re.compile(r"[^\w\sऀ-ॣ०-ॿ]")
+
+
 def text_tokens(text: str) -> list[str]:
-    t = base_clean(text)
-    t = re.sub(r"[^\w\s]", " ", t)
+    t = NON_WORD.sub(" ", base_clean(text))
     return [w for w in t.split() if w not in STOPWORDS and len(w) > 1]
 
 
@@ -378,4 +382,9 @@ def similarity_text(text: str, institution_names: list[str | None], places: list
         if value:
             drop.update(text_tokens(value))
             drop.update(normalize_name(value).split())
-    return " ".join(t for t in text_tokens(text) if t not in drop)
+
+    def is_name(token: str) -> bool:
+        # A Hindi complaint writes the institution's name in Devanagari; compare it in the canonical Latin form.
+        return token in drop or (bool(DEVANAGARI.search(token)) and normalize_name(token) in drop)
+
+    return " ".join(t for t in text_tokens(text) if not is_name(t))

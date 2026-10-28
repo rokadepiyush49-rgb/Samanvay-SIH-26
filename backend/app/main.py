@@ -16,13 +16,16 @@ from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.case.router import router as case_router
 from app.modules.coordination.router import router as coordination_router
+from app.modules.copilot.router import router as copilot_router
 from app.modules.dashboard.router import router as dashboard_router
 from app.modules.documents.router import router as documents_router
 from app.modules.eval_router import router as eval_router
 from app.modules.imports.router import router as imports_router
 from app.modules.institution.router import router as institution_router
+from app.modules.messages.router import router as messages_router
 from app.modules.reports.router import router as reports_router
 from app.modules.sla.router import router as sla_router
+from app.modules.tasks.router import router as tasks_router
 
 
 def create_app() -> FastAPI:
@@ -54,6 +57,9 @@ def create_app() -> FastAPI:
         case_router,
         coordination_router,
         assistance_router,
+        tasks_router,
+        messages_router,
+        copilot_router,
         institution_router,
         dashboard_router,
         documents_router,

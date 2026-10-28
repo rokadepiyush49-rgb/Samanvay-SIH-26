@@ -317,12 +317,25 @@ def _apply(
             follower_no = follower.case_no
 
     if co.joint_due and decision != "NOT_RELATED":
+        from app.modules.tasks import service as tasks  # tasks import the case module, as this module does
+
         sla.schedule_joint_due(db, co.id, [a.id, b.id], co.joint_due)
         for c in (a, b):
             if c.status not in fsm.TERMINAL:
                 c.next_action, c.next_action_due = (
                     co.joint_next_action or "Joint action agreed in coordination",
                     co.joint_due,
+                )
+                # An agreed joint step with a deadline becomes a task on each case, owned by its holding unit.
+                tasks.create(
+                    db,
+                    user,
+                    c,
+                    title=co.joint_next_action or "Joint action agreed in coordination",
+                    owner_id=c.holding_officer_id,
+                    due_on=co.joint_due,
+                    source="COORDINATION",
+                    source_ref=co.code,
                 )
 
     lead_code = p.get("lead_unit")

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25T23:06:08+00:00",
+  "generated_at": "2026-10-27T10:10:56+00:00",
   "seed": 2026,
   "text_backend": "ngram3-v1",
   "dataset": {
@@ -77,24 +77,24 @@
     }
   },
   "samanvay_link_types": {
-    "none": 7936,
+    "none": 7933,
     "C": 3086,
     "R": 120,
     "D": 150,
-    "L": 21
+    "L": 24
   },
   "calibration": {
     "uncalibrated": {
       "a": 1.0,
       "b": -4.0,
-      "ece": 0.1504
+      "ece": 0.1501
     },
     "platt": {
-      "a": 1.4681,
-      "b": -11.2184,
+      "a": 1.4722,
+      "b": -11.2179,
       "fitted_on_seed": 2027,
       "backend": "ngram3-v1",
-      "ece": 0.0036
+      "ece": 0.0037
     },
     "note": "Platt parameters fitted on independent synthetic seed 2027 and evaluated on seed 2026. The demo seed activates them as matching model fs-v2-cal; on real data they must be re-fitted on officers' decisions."
   },
@@ -114,7 +114,7 @@
     "recall": 0.85,
     "precision": 0.8
   },
-  "runtime_seconds": 24.9,
+  "runtime_seconds": 12.9,
   "caveats": [
     "Synthetic data proves the mechanism and the measurement method, not real-world accuracy.",
     "With the n-gram backend, Hindi–English pairs are matched on institution, category, shared amounts/dates/programmes and timing only; their text is not compared.",

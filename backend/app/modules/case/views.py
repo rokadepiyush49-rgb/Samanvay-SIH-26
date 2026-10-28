@@ -15,11 +15,13 @@ from app.modules.assistance import service as assistance
 from app.modules.audit import chain
 from app.modules.case import fsm
 from app.modules.case.service import allowed_actions, has_full_access
+from app.modules.institution import issues
 from app.modules.matching.scoring import PS_PHRASE, TYPE_LABELS
 from app.modules.policy.roles import CASEWORK_ROLES, CurrentUser, Role
 from app.modules.routing import service as routing
 from app.modules.search.query import CaseFilters, build_where, decode_cursor, encode_cursor, parse_tokens
 from app.modules.sla.calendar import get_calendar, today_ist
+from app.modules.tasks import service as tasks
 
 _LIST_SELECT = """
 SELECT c.id, c.case_no, c.channel, c.source_ref, c.status, c.sensitivity, c.received_on, c.expected_disposal,
@@ -289,6 +291,12 @@ def case_detail(db: Session, user: CurrentUser, case: CaseRecord) -> dict[str, A
         and user.has(*CASEWORK_ROLES)
         and case.status not in fsm.TERMINAL
         and case.sensitivity != "SEALED",
+        "issue": issues.for_case(db, case.institution_id, case.case_no),
+        "tasks": (case_tasks := tasks.for_case(db, user, case.id)),
+        "next_task": tasks.next_open(case_tasks),
+        "can_add_task": case.holding_unit_id == user.unit_id
+        and user.has(*CASEWORK_ROLES)
+        and case.status not in fsm.TERMINAL,
         "routing": routing.recommend(db, case)
         if full and (case.holding_unit_id == user.unit_id or user.has(Role.COMPETENT_AUTHORITY, Role.NODAL_OFFICER))
         else None,

@@ -72,6 +72,7 @@ def features(
     text_sim: float | None,
     bands: tuple[float, float, float],
     text_note: str | None = None,
+    text_pair: str | None = None,
 ) -> tuple[float, list[dict], list[str]]:
     reasons: list[dict] = []
     score = 0.0
@@ -117,7 +118,8 @@ def features(
         else:
             w = -1.0
         score += w
-        reasons.append(_reason("text_similarity", f"Text similarity {text_sim:.2f}", w, text_sim))
+        label = f"Text similarity {text_sim:.2f}" + (f" ({text_pair})" if text_pair else "")
+        reasons.append(_reason("text_similarity", label, w, text_sim))
 
     if a.entities and b.entities:
         jac = len(a.entities & b.entities) / len(a.entities | b.entities)
@@ -187,7 +189,11 @@ def score_pair(a: CaseView, b: CaseView, compat: dict[tuple[str, str], float], b
             note = "Text not compared (different languages)" if a.language != b.language else "Text not compared"
     else:
         note = "Text not compared (similarity service unavailable)"
-    s, reasons, shared = features(a, b, compat, sim, getattr(backend, "bands", (0.85, 0.75, 0.6)), note)
+    bands = getattr(backend, "bands", (0.85, 0.75, 0.6))
+    cross = a.language != b.language and sim is not None
+    if cross:
+        bands = getattr(backend, "cross_bands", bands)
+    s, reasons, shared = features(a, b, compat, sim, bands, note, "Hindi–English" if cross else None)
     p = probability(s, params.get("a", 1.0), params.get("b", -4.0))
     return PairScore(s, p, classify(p, a, b, reasons), reasons, shared)
 

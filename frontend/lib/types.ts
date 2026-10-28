@@ -108,7 +108,20 @@ export type CaseDetail = CaseRow & {
   assistance: AssistanceRequest[];
   can_request_assistance: boolean;
   routing: RoutingRecommendation | null;
+  tasks: CaseTask[];
+  next_task: CaseTask | null;
+  can_add_task: boolean;
 };
+
+/** Case task (backend/app/modules/tasks): owner, deadline, status, dependency. */
+export type CaseTask = {
+  id: string; title: string; due_on: string | null; overdue: boolean; status: "OPEN" | "DONE" | "CANCELLED"; blocked: boolean;
+  depends_on: { id: string; title: string; status: string } | null; source: "MANUAL" | "COORDINATION" | "MESSAGE"; source_label: string;
+  source_ref: string | null; owner_unit: string; owner: string | null; created_by: string | null; created_at: string; done_at: string | null;
+  done_note: string | null; row_version: number; case_no: string; holding_unit: string; institution: string | null;
+  can_complete: boolean; can_cancel: boolean;
+};
+export type TaskList = { items: CaseTask[]; counts: { open: number; overdue: number; due_soon: number } };
 
 /** Bureau routing recommendation (backend/app/modules/routing/service.py): advisory, the officer decides. */
 export type RoutingAlternative = { unit: string; unit_name: string; score: number; mandate: "PRIMARY" | "SUPPORT" | null; reasons: Reason[] };
@@ -265,3 +278,16 @@ export type AuditEvents = {
   last_checkpoint: { upto_seq: number; at: string; key_id: string } | null;
 };
 export type AuditVerify = { ok: boolean; entries: number; checkpoints: number; first_broken_seq: number | null; problem: string | null; public_key_id: string };
+
+export type CaseMessage = { id: string; body: string; sha256: string; at: string; author: string; unit: string; mine: boolean };
+export type CaseThread = { items: CaseMessage[]; participants: { unit: string; why: string }[]; can_post: boolean; can_make_task: boolean };
+
+export type AssistantSource = {
+  id: string; title: string; text: string;
+  kind: "FACTS" | "COMPLAINT" | "EVENT" | "TASK" | "LINK" | "ASSIST" | "DOCUMENT" | "MESSAGE" | "ROUTING" | "ISSUE" | "RULE";
+  ref: Record<string, string | number>;
+};
+type AssistantRun = { mode: "offline" | "claude"; model: string | null; note: string | null; sources: AssistantSource[]; generated_at: string; case_no: string; tier: "full" | "metadata" };
+export type AssistantSummary = AssistantRun & { headline: string; points: { text: string; sources: string[] }[]; missing: string[] };
+export type AssistantAnswer = AssistantRun & { answer: string; found: boolean; question: string };
+export type AssistantStatus = { mode: "offline" | "claude"; model: string | null };

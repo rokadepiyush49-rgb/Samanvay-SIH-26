@@ -8,7 +8,14 @@ from hypothesis import strategies as st
 
 from app.modules.institution.resolver import InstCandidate, InstQuery, rank
 from app.modules.matching import scoring
-from app.modules.matching.normalize import extract_entities, extract_refs, normalize_name, transliterate
+from app.modules.matching.normalize import (
+    extract_entities,
+    extract_refs,
+    normalize_name,
+    similarity_text,
+    text_tokens,
+    transliterate,
+)
 from app.modules.sla.calendar import WorkCalendar
 
 
@@ -124,3 +131,15 @@ def test_working_day_arithmetic_round_trips(start, n):
 
 def test_gandhi_jayanti_is_skipped():
     assert CAL.add_working_days(dt.date(2026, 10, 1), 1) == dt.date(2026, 10, 5)  # Fri 2 Oct holiday, then weekend
+
+
+def test_hindi_words_survive_tokenisation_and_the_institution_name_is_removed():
+    # Regression: \w does not match Devanagari vowel signs, which used to split "बकाया" into fragments.
+    assert text_tokens("शुल्क बकाया बताकर मूल डिग्री रोक रहा है।") == ["शुल्क", "बकाया", "बताकर", "मूल", "डिग्री", "रोक"]
+    text = similarity_text(
+        "सह्याद्री वैली इंस्टीट्यूट ऑफ इंजीनियरिंग ने मेरी मूल डिग्री रोक ली।",
+        ["Sahyadri Valley Institute of Engineering"],
+        ["Nashik"],
+    )
+    assert "इंस्टीट्यूट" not in text and "इंजीनियरिंग" not in text
+    assert "डिग्री" in text

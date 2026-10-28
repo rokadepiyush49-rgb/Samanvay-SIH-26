@@ -20,6 +20,7 @@ from app.core.errors import forbidden
 from app.modules.auth.deps import current_user
 from app.modules.case import fsm
 from app.modules.case.views import list_cases
+from app.modules.institution import issues
 from app.modules.policy.roles import CASE_VIEW_ROLES, MANAGEMENT_ROLES, CurrentUser, Role
 from app.modules.search.query import CaseFilters
 from app.modules.sla.calendar import get_calendar, today_ist
@@ -430,6 +431,59 @@ class SimulationIn(BaseModel):
     unit: str | None = None
     period_from: dt.date | None = None
     period_to: dt.date | None = None
+
+
+@router.get("/dashboard/recurring")
+def recurring(
+    unit: str | None = None,
+    region: int | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    user: CurrentUser = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Recurring institutional issues (3+ separate incidents in one issue family within 365 days), scoped like the
+    cockpit. Incidents are counted across every unit, so a unit head sees patterns its own cases are part of."""
+    user.require(MANAGEMENT_ROLES, "view recurring issues")
+    where, p, label = _scope(db, user, unit, region)
+    since = today_ist() - dt.timedelta(days=issues.WINDOW_DAYS)
+    ids = [
+        r.institution_id
+        for r in db.execute(
+            text(
+                f"SELECT c.institution_id FROM case_record c JOIN unit u ON u.id = c.holding_unit_id WHERE {where} "
+                "AND c.institution_id IS NOT NULL AND c.received_on >= :since AND c.sensitivity <> 'SEALED' "
+                "GROUP BY c.institution_id HAVING count(*) >= :n"
+            ),
+            {**p, "since": since, "n": issues.RECURRING_MIN_INCIDENTS},
+        ).all()
+    ]
+    groups = issues.summarise(db, ids)
+    insts = {
+        r.id: {"permanent_id": r.permanent_id, "name": r.name, "city": r.city}
+        for r in db.execute(
+            text("SELECT id, permanent_id, name, city FROM institution WHERE id = ANY(:ids)"), {"ids": ids}
+        ).all()
+    }
+    items = [
+        {**{k: v for k, v in g.items() if k != "cases"}, "institution": insts.get(inst_id)}
+        for inst_id, gs in groups.items()
+        for g in gs
+        if g["kind"] == "RECURRING"
+    ]
+    items.sort(key=lambda g: g["last"], reverse=True)  # most recent first within the same incident count
+    items.sort(key=lambda g: -g["incidents"])
+    by_family: dict[str, dict] = {}
+    for g in items:
+        f = by_family.setdefault(g["family"], {"family": g["family"], "label": g["label"], "institutions": 0})
+        f["institutions"] += 1
+    return {
+        "scope": label,
+        "window_days": issues.WINDOW_DAYS,
+        "min_incidents": issues.RECURRING_MIN_INCIDENTS,
+        "total": len(items),
+        "by_family": sorted(by_family.values(), key=lambda f: -f["institutions"]),
+        "items": items[:limit],
+    }
 
 
 @router.post("/simulations/sla")

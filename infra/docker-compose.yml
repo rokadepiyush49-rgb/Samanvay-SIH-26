@@ -22,7 +22,14 @@ x-backend-env: &backend-env
   CLAMAV_HOST: clamav
   SMTP_HOST: mailhog
   SMTP_PORT: "1025"
-  TEXT_BACKEND: ${TEXT_BACKEND:-ngram}
+  # Multilingual embeddings are baked into the image (WITH_EMBEDDINGS); if the model is missing the matcher falls back
+  # to n-grams and says so on every card.
+  TEXT_BACKEND: ${TEXT_BACKEND:-embedding}
+
+x-backend-build: &backend-build
+  context: ../backend
+  args:
+    WITH_EMBEDDINGS: ${WITH_EMBEDDINGS:-true}
 
 services:
   db:
@@ -41,14 +48,14 @@ services:
       retries: 20
 
   migrate:
-    build: ../backend
+    build: *backend-build
     environment: *backend-env
     command: ["alembic", "upgrade", "head"]
     depends_on:
       db: { condition: service_healthy }
 
   api:
-    build: ../backend
+    build: *backend-build
     environment: *backend-env
     volumes:
       - documents:/srv/var/documents
@@ -58,7 +65,7 @@ services:
     ports: ["127.0.0.1:8000:8000"]
 
   worker:
-    build: ../backend
+    build: *backend-build
     environment: *backend-env
     command: ["python", "-m", "app.worker"]
     # The image's healthcheck polls the API port; the worker has none, so it proves its loop is alive instead.

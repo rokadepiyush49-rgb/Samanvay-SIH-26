@@ -24,7 +24,7 @@ python3 scripts/gen_env.py
 ```
 
 ```bash
-cd backend && uv sync && cd ../frontend && pnpm install && cd ..
+cd backend && uv sync --extra embeddings && cd ../frontend && pnpm install && cd ..
 ```
 
 ```bash

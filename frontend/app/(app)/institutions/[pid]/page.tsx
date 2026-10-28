@@ -1,12 +1,13 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, GitMerge, History, Landmark, Link2, Lock, MapPin, Plus, Users } from "lucide-react";
+import { Building2, GitMerge, History, Landmark, Link2, Lock, MapPin, Network, Plus, Users } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { CaseGraph } from "@/components/case-graph";
 import { CaseTable, REGISTER_COLUMNS } from "@/components/cases";
 import { Require } from "@/components/require";
 import { OverlapTypeBadge } from "@/components/status";
@@ -18,7 +19,7 @@ import { can } from "@/lib/permissions";
 import { useSession } from "@/lib/session";
 import type { CaseRow, Institution360 } from "@/lib/types";
 
-type Tab = "overview" | "cases" | "alerts" | "history";
+type Tab = "overview" | "cases" | "graph" | "alerts" | "history";
 const STATUS_COLOR: Record<string, string> = { pending: "var(--warn)", under_process: "var(--action)", disposed: "var(--ok)", rejected: "var(--muted)", transferred: "var(--coord)" };
 
 /** One lane per unit, one mark per case on a shared time axis. Ring = open, filled dot = closed, dashed halo = undecided parallel action. */
@@ -112,7 +113,7 @@ function I360() {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
-  const tab = (["overview", "cases", "alerts", "history"].includes(sp.get("tab") ?? "") ? sp.get("tab") : "overview") as Tab;
+  const tab = (["overview", "cases", "graph", "alerts", "history"].includes(sp.get("tab") ?? "") ? sp.get("tab") : "overview") as Tab;
   const { data, error, isLoading, mutate } = useApi<Institution360>(`/institutions/${pid}`);
   if (isLoading) return <PageSkeleton label="Loading institution" />;
   if (error || !data) return <ErrorState error={error} onRetry={() => mutate()} />;
@@ -143,6 +144,7 @@ function I360() {
       <Tabs idBase="i360" label="Institution sections" value={tab} onChange={(v) => router.replace(`${pathname}${v === "overview" ? "" : `?tab=${v}`}`, { scroll: false })} items={[
         { value: "overview", label: "Identity & units", icon: <Landmark size={15} aria-hidden /> },
         { value: "cases", label: "Cases", count: data.cases.length },
+        { value: "graph", label: "Case graph", icon: <Network size={15} aria-hidden /> },
         { value: "alerts", label: "Related-case alerts", count: alerts },
         { value: "history", label: "History", icon: <History size={15} aria-hidden /> },
       ]} />
@@ -191,6 +193,11 @@ function I360() {
           </div>
         )}
         {tab === "cases" && (data.cases.length === 0 ? <EmptyState title="No cases visible to you on this institution." /> : <CaseTable rows={data.cases} columns={REGISTER_COLUMNS} caption={`Cases on ${i.name}`} />)}
+        {tab === "graph" && (
+          <Card title="Institutional case graph" description="Units holding this institution's cases, the cases, and the overlap links between them. Links across units are where coordination is needed.">
+            <CaseGraph data={data} />
+          </Card>
+        )}
         {tab === "alerts" && (
           <div className="grid gap-5 lg:grid-cols-2">
             <Card title="Links between these cases" description="Proposed links are evidence for review, not confirmed duplicates." padded={false}>

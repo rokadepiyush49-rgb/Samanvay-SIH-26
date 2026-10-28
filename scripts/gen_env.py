@@ -40,7 +40,7 @@ def main() -> None:
         "SEED_DEMO_PASSWORD": secrets.token_urlsafe(12),
         "STORAGE_PATH": str(ROOT / "var" / "documents"),
         "SCANNER": "builtin",
-        "TEXT_BACKEND": "ngram",
+        "TEXT_BACKEND": "embedding",  # falls back to n-grams if the model or the extra is missing
         "COOKIE_SECURE": "false",
         "PUBLIC_BASE_URL": "http://localhost:3000",
     }

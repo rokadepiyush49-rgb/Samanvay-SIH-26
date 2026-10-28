@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { CaseTable } from "@/components/cases";
 import { Require } from "@/components/require";
+import { MyTasksCard } from "@/components/tasks";
 import { Button, ButtonLink, Card, EmptyState, ErrorState, KpiCard, PageHeader, PageSkeleton, cx, inputCls } from "@/components/ui";
 import { qs, useApi } from "@/lib/api";
 import { ago, num, todayLong } from "@/lib/format";
@@ -141,6 +142,7 @@ function DeskView() {
         </section>
         <div className="flex flex-col gap-6">
           <PriorityAlerts alerts={alerts} />
+          <MyTasksCard />
           <QuickActions />
         </div>
       </div>

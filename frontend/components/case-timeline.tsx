@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, CircleDot, FileText, Flag, LifeBuoy, MessageSquare, Network, Route, ShieldAlert, TrendingUp, UserCheck } from "lucide-react";
+import { ArrowLeftRight, CircleDot, FileText, Flag, LifeBuoy, ListTodo, MessageSquare, Network, Route, ShieldAlert, TrendingUp, UserCheck } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { fmtDate, fmtDateTime, label } from "@/lib/format";
 import type { TimelineEvent } from "@/lib/types";
@@ -15,18 +15,20 @@ export const EVENT_LABEL: Record<string, string> = {
   DOCUMENT_REJECTED: "Document rejected", COORDINATION_VERIFYING: "Verification requested before deciding",
   ASSISTANCE_REQUESTED: "Assistance requested", ASSISTANCE_ACCEPTED: "Assistance accepted", ASSISTANCE_DECLINED: "Assistance declined",
   ASSISTANCE_COMPLETED: "Assistance completed", ASSISTANCE_CANCELLED: "Assistance withdrawn",
+  TASK_ADDED: "Task added", TASK_DONE: "Task completed", TASK_CANCELLED: "Task cancelled",
 };
 
 type Kind = "all" | "actions" | "custody" | "coordination" | "notes";
 const KIND_OF = (t: string): Exclude<Kind, "all"> =>
   t.startsWith("TRANSFER") || t === "ASSIGNED" || t === "ESCALATED" ? "custody"
     : t.startsWith("COORDINATION") || t.startsWith("ASSISTANCE") ? "coordination"
-      : ["NOTE", "INTERIM_REPLY_SENT", "NEXT_ACTION", "DOCUMENT_ADDED", "DOCUMENT_REJECTED"].includes(t) ? "notes" : "actions";
+      : ["NOTE", "INTERIM_REPLY_SENT", "NEXT_ACTION", "DOCUMENT_ADDED", "DOCUMENT_REJECTED"].includes(t) || t.startsWith("TASK") ? "notes" : "actions";
 
 function icon(t: string): { node: ReactNode; cls: string } {
   if (t.startsWith("TRANSFER")) return { node: <ArrowLeftRight size={14} aria-hidden />, cls: "bg-warn-soft text-warn" };
   if (t.startsWith("COORDINATION")) return { node: <Network size={14} aria-hidden />, cls: "bg-coord-soft text-coord" };
   if (t.startsWith("ASSISTANCE")) return { node: <LifeBuoy size={14} aria-hidden />, cls: "bg-action-soft text-action" };
+  if (t.startsWith("TASK")) return { node: <ListTodo size={14} aria-hidden />, cls: t === "TASK_DONE" ? "bg-ok-soft text-ok" : "bg-surface-2 text-muted" };
   if (t === "ESCALATED") return { node: <TrendingUp size={14} aria-hidden />, cls: "bg-danger-soft text-danger" };
   if (t === "ASSIGNED") return { node: <UserCheck size={14} aria-hidden />, cls: "bg-action-soft text-action" };
   if (t.startsWith("DOCUMENT")) return { node: <FileText size={14} aria-hidden />, cls: "bg-surface-2 text-muted" };
@@ -59,6 +61,10 @@ export function EventLine({ e }: { e: TimelineEvent }) {
         )}
         {e.type === "COORDINATION_OPENED" && <p className="mt-1 text-xs font-medium text-coord">{String(e.data.phrase ?? "")} · {String(e.data.coordination ?? "")}</p>}
         {e.type === "COORDINATION_DECIDED" && <p className="mt-1 text-xs">{label(String(e.data.decision))}{e.data.lead_unit ? `, ${e.data.lead_unit} leads` : ""}{e.data.joint_due ? ` · joint action by ${fmtDate(String(e.data.joint_due))}` : ""}</p>}
+        {e.type === "TASK_ADDED" && (
+          <p className="mt-1 text-xs text-muted">Owner {String(e.data.owner_unit ?? "")}{e.data.due_on ? ` · due ${fmtDate(String(e.data.due_on))}` : ""}{e.data.source === "COORDINATION" ? ` · joint action ${String(e.data.source_ref ?? "")}` : e.data.source === "MESSAGE" ? ` · from ${String(e.data.source_ref ?? "")} room` : ""}</p>
+        )}
+        {(e.type === "TASK_DONE" || e.type === "TASK_CANCELLED") && e.data.title ? <p className="mt-1 text-xs text-muted">“{String(e.data.title)}”</p> : null}
         {e.type === "COORDINATION_VERIFYING" && <p className="mt-1 text-xs text-coord">{String(e.data.coordination ?? "")} · verify by {fmtDate(String(e.data.verify_by))}</p>}
         {e.type.startsWith("ASSISTANCE") && (
           <p className="mt-1 text-xs text-muted">

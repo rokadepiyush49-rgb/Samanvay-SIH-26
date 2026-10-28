@@ -74,4 +74,14 @@ export const verificationSchema = z.object({
 });
 export type VerificationForm = z.infer<typeof verificationSchema>;
 
+/** Case task: what must happen next, by whom and by when (tasks/service.py: 3–300 characters, no past due date). */
+export const taskSchema = z.object({
+  title: z.string().trim().min(3, "Describe the task (at least 3 characters).").max(300),
+  owner_unit: z.string(),
+  owner_id: z.string(),
+  due_on: z.string(),
+  depends_on: z.string(),
+});
+export type TaskForm = z.infer<typeof taskSchema>;
+
 export const guardReasonSchema = z.string().trim().min(10, "Record why this cannot wait for coordination (at least 10 characters).");

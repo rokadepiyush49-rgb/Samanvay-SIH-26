@@ -6,13 +6,14 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import smtplib
+import uuid
 from email.message import EmailMessage
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import AssistanceRequest, CaseRecord, Coordination, Timer, Transfer
+from app.models import AssistanceRequest, CaseRecord, CaseTask, Coordination, Timer, Transfer
 from app.modules.audit import chain
 from app.modules.case import fsm
 from app.modules.sla import notify as nt
@@ -194,6 +195,30 @@ def _fire(db: Session, t: Timer) -> None:
                 case_id=case.id,
                 key=f"timer:{t.id}",
             )
+    elif t.kind in ("TASK_DUE", "TASK_OVERDUE"):
+        task = db.get(CaseTask, uuid.UUID(t.payload["task_id"]))
+        if task is None or task.status != "OPEN":
+            return
+        case = db.get(CaseRecord, task.case_id)
+        if case is None or case.status in fsm.TERMINAL:
+            return
+        owner = [task.owner_id] if task.owner_id else nt.unit_officers(db, task.owner_unit_id)
+        due = task.due_on.strftime("%d-%m-%Y") if task.due_on else ""
+        if t.kind == "TASK_DUE":
+            title, extra, severity = f"Task due {due} on {case.case_no}: {task.title[:80]}", [], "WARNING"
+        else:
+            title, severity = f"Task overdue (was due {due}) on {case.case_no}: {task.title[:80]}", "CRITICAL"
+            extra = [case.holding_officer_id, *nt.unit_heads(db, task.owner_unit_id)]
+        nt.notify(
+            db,
+            [*owner, *extra],
+            family="TASK",
+            severity=severity,
+            title=title,
+            link=nt.case_link(case.case_no),
+            case_id=case.id,
+            key=f"timer:{t.id}",
+        )
     elif t.kind == "COORD_ESCALATION":
         co = db.get(Coordination, t.coordination_id)
         if co is None or co.status in ("DECIDED", "ESCALATED"):

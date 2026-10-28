@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     text_backend: Literal["ngram", "embedding"] = "ngram"
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
+    # Case assistant: "offline" composes summaries and answers from retrieved passages with rules; "anthropic" sends
+    # the same passages (case content included) to Claude. Off by default; use only with data cleared for it.
+    ai_provider: Literal["offline", "anthropic"] = "offline"
+    ai_model: str = "claude-opus-5-5"
+    ai_effort: Literal["low", "medium", "high"] = "low"
+    ai_timeout_seconds: float = 45.0
+
     reopen_window_days: int = 90
     login_max_failures: int = 5
     login_lockout_minutes: int = 15

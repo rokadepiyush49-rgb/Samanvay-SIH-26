@@ -98,6 +98,21 @@ SUPPORT_MANDATES = [
 ]
 
 
+# Issue families for recurring-issue detection (proposed v0): categories that describe the same kind of problem at an
+# institution, whichever unit received them. Sealed categories are never grouped.
+ISSUE_FAMILIES = {
+    "CERTIFICATES": ("Certificates and documents withheld", ["GRV_CERTIFICATE", "NV_CERT_RETENTION"]),
+    "FEES": ("Fees, refunds and capitation", ["GRV_FEE", "MAL_FINANCIAL"]),
+    "FACULTY": ("Faculty norms and service conditions", ["NV_FACULTY", "GRV_FACULTY_SERVICE"]),
+    "INFRASTRUCTURE": ("Infrastructure and facilities", ["NV_INFRA"]),
+    "APPROVAL": ("Approval, intake and programmes", ["NV_INTAKE", "NV_UNAPPROVED"]),
+    "SCHOLARSHIP": ("Scholarships and stipends", ["GRV_SCHOLARSHIP"]),
+    "EXAMS": ("Examinations and results", ["GRV_EXAM"]),
+    "VIGILANCE": ("Vigilance referrals", ["VIGILANCE"]),
+    "OTHER": ("Other complaints", ["OTHER"]),
+}
+
+
 def compat_matrix() -> dict[tuple[str, str], float]:
     groups = {c[0]: c[3] for c in CATEGORIES}
     out: dict[tuple[str, str], float] = {}

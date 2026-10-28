@@ -2,16 +2,19 @@
 
 import {
   ArrowLeftRight, Building2, CalendarClock, CheckCircle2, ClipboardList, FileText, GitMerge, History, LifeBuoy, Lock, MessageSquarePlus,
-  Network, ShieldAlert, Upload, UserRound,
+  MessagesSquare, Network, ShieldAlert, Sparkles, Upload, UserRound,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, Suspense, useRef, useState, type ReactNode } from "react";
+import { CaseAssistant } from "@/components/case-assistant";
 import { ActionDialog, NoteDialog, RevealDialog, TransferDecisionDialog, TransferDialog } from "@/components/case-dialogs";
+import { CaseMessages } from "@/components/case-messages";
 import { CaseTimeline, EventLine } from "@/components/case-timeline";
 import { GuardDialog } from "@/components/conflict-guard";
 import { Require } from "@/components/require";
 import { AssistanceDialog, AssistancePanel, RoutingCard, type RoutingPreset } from "@/components/routing";
+import { TaskPanel } from "@/components/tasks";
 import { CaseFlags, CoordinationStatusBadge, EvidenceList, OverlapTypeBadge, StatusBadge } from "@/components/status";
 import { useToast } from "@/components/toast";
 import {
@@ -22,13 +25,14 @@ import { bytes, CHANNEL_LABEL, fmtDate, fmtDateTime, label } from "@/lib/format"
 import { can } from "@/lib/permissions";
 import { nextStep } from "@/lib/priority";
 import { useSession } from "@/lib/session";
-import type { AllowedAction, CaseDetail } from "@/lib/types";
+import type { AllowedAction, CaseDetail, CaseThread } from "@/lib/types";
 
-type Tab = "overview" | "timeline" | "documents" | "links";
+const TABS = ["overview", "timeline", "documents", "links", "messages", "assistant"] as const;
+type Tab = (typeof TABS)[number];
 const TIMER_LABEL: Record<string, string> = {
   SLA_REMINDER: "Reminder", SLA_INTERIM: "Interim reply due", SLA_BREACH: "Overdue from", SLA_ESCALATION: "Escalation",
   JOINT_DUE: "Joint action due", TRANSFER_REMINDER: "Transfer reminder", TRANSFER_ESCALATION: "Transfer escalation",
-  ASSIST_REMINDER: "Assistance reminder", ASSIST_OVERDUE: "Assistance overdue from",
+  ASSIST_REMINDER: "Assistance reminder", ASSIST_OVERDUE: "Assistance overdue from", TASK_DUE: "Task reminder", TASK_OVERDUE: "Task overdue from",
 };
 
 function Fact({ icon, label: l, children, sub }: { icon: ReactNode; label: string; children: ReactNode; sub?: ReactNode }) {
@@ -67,9 +71,16 @@ function CaseSummaryHeader({ c }: { c: CaseDetail }) {
             sub={c.overdue ? <span className="font-semibold text-danger">Overdue</span> : c.working_days_left !== null ? `${c.working_days_left} working days left` : c.sla_policy ? `${c.sla_policy.code} v${c.sla_policy.version}` : undefined}>
             {fmtDate(c.expected_disposal)}
           </Fact>
-          <Fact icon={<ClipboardList size={16} />} label="Next action" sub={c.next_action_due ? `by ${fmtDate(c.next_action_due)}` : step?.suggested ? "suggested from case state" : undefined}>
-            <span className={cx(step?.suggested && "font-medium italic text-muted")} title={step?.text}>{step?.text ?? "None recorded"}</span>
-          </Fact>
+          {c.next_task ? (
+            <Fact icon={<ClipboardList size={16} />} label="Next action"
+              sub={<span className={cx(c.next_task.overdue && "font-semibold text-danger")}>{c.next_task.owner_unit}{c.next_task.due_on ? ` · ${c.next_task.overdue ? "overdue since" : "by"} ${fmtDate(c.next_task.due_on)}` : ""}</span>}>
+              <span title={c.next_task.title} data-testid="next-task">{c.next_task.title}</span>
+            </Fact>
+          ) : (
+            <Fact icon={<ClipboardList size={16} />} label="Next action" sub={c.next_action_due ? `by ${fmtDate(c.next_action_due)}` : step?.suggested ? "suggested from case state" : undefined}>
+              <span className={cx(step?.suggested && "font-medium italic text-muted")} title={step?.text}>{step?.text ?? "None recorded"}</span>
+            </Fact>
+          )}
         </dl>
       </div>
     </Card>
@@ -167,6 +178,7 @@ function Overview({ c, onReveal, onTransfer, onAssist, onChanged }:
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="flex min-w-0 flex-col gap-5">
+        {(c.tasks.length > 0 || c.can_add_task) && <TaskPanel c={c} onChanged={onChanged} />}
         <RoutingCard c={c} onTransfer={onTransfer} onAssist={onAssist} />
         {(c.assistance.length > 0 || c.can_request_assistance) && <AssistancePanel c={c} onAsk={() => onAssist(null)} onChanged={onChanged} />}
         {c.tier === "metadata" ? (
@@ -298,7 +310,8 @@ function Workspace() {
   const sp = useSearchParams();
   const toast = useToast();
   const { data: c, error, mutate, isLoading } = useApi<CaseDetail>(`/cases/${caseNo}`);
-  const tab = (["overview", "timeline", "documents", "links"].includes(sp.get("tab") ?? "") ? sp.get("tab") : "overview") as Tab;
+  const { data: thread } = useApi<CaseThread>(c?.tier === "full" ? `/cases/${caseNo}/messages` : null, { refreshInterval: 30000 });
+  const tab = ((TABS as readonly string[]).includes(sp.get("tab") ?? "") ? sp.get("tab") : "overview") as Tab;
   const [action, setAction] = useState<AllowedAction | null>(null);
   const [guardAction, setGuardAction] = useState<AllowedAction | null>(null);
   const [transfer, setTransfer] = useState(false);
@@ -359,6 +372,8 @@ function Workspace() {
           { value: "timeline", label: "Timeline", count: c.timeline.length, icon: <History size={15} aria-hidden /> },
           { value: "documents", label: "Documents", count: c.documents?.length, icon: <FileText size={15} aria-hidden /> },
           { value: "links", label: "Linked cases", count: c.links.length, icon: <GitMerge size={15} aria-hidden /> },
+          { value: "messages", label: "Messages", count: thread?.items.length, icon: <MessagesSquare size={15} aria-hidden /> },
+          { value: "assistant", label: "AI assistant", icon: <Sparkles size={15} aria-hidden /> },
         ]} />
         <TabPanel idBase="case" value={tab}>
           {tab === "overview" && (
@@ -368,6 +383,8 @@ function Workspace() {
           {tab === "timeline" && <Card><CaseTimeline events={c.timeline} /></Card>}
           {tab === "documents" && <Documents c={c} onUpload={() => fileRef.current?.click()} />}
           {tab === "links" && <Links c={c} />}
+          {tab === "messages" && <CaseMessages caseNo={c.case_no} tier={c.tier} holder={c.holding_unit.code} onChanged={() => void mutate()} />}
+          {tab === "assistant" && <CaseAssistant caseNo={c.case_no} tier={c.tier} />}
         </TabPanel>
       </div>
 

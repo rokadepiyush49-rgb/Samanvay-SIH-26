@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25T23:21:23+00:00",
+  "generated_at": "2026-10-27T10:11:26+00:00",
   "seed": 2026,
   "text_backend": "st:paraphrase-multilingual-MiniLM-L12-v2",
   "dataset": {
@@ -55,46 +55,46 @@
       }
     },
     "Samanvay cascade": {
-      "precision": 0.904,
-      "recall": 0.813,
-      "f1": 0.856,
-      "predicted": 270,
-      "true_positives": 244,
+      "precision": 0.932,
+      "recall": 0.87,
+      "f1": 0.9,
+      "predicted": 280,
+      "true_positives": 261,
       "recall_by_kind": {
         "dup_multichannel": 1.0,
         "cpgrams_forward": 1.0,
-        "paraphrase": 0.907,
-        "hindi_english": 0.347
+        "paraphrase": 0.813,
+        "hindi_english": 0.667
       },
       "false_positive_rate_hard_negatives": {
         "neg_other_matter": 0.0,
-        "neg_sibling": 0.04
+        "neg_sibling": 0.033
       },
       "pairs_with_hindi": {
-        "recall": 0.347,
-        "precision": 1.0
+        "recall": 0.667,
+        "precision": 0.943
       }
     }
   },
   "samanvay_link_types": {
     "none": 7921,
-    "C": 3099,
+    "C": 3094,
+    "R": 130,
     "D": 150,
-    "L": 23,
-    "R": 120
+    "L": 18
   },
   "calibration": {
     "uncalibrated": {
       "a": 1.0,
       "b": -4.0,
-      "ece": 0.1147
+      "ece": 0.1181
     },
     "platt": {
-      "a": 1.5892,
-      "b": -10.684,
+      "a": 1.8518,
+      "b": -13.1233,
       "fitted_on_seed": 2027,
       "backend": "st:paraphrase-multilingual-MiniLM-L12-v2",
-      "ece": 0.0029
+      "ece": 0.0022
     },
     "note": "Platt parameters fitted on independent synthetic seed 2027 and evaluated on seed 2026. The demo seed activates them as matching model fs-v2-cal; on real data they must be re-fitted on officers' decisions."
   },
@@ -114,7 +114,7 @@
     "recall": 0.85,
     "precision": 0.8
   },
-  "runtime_seconds": 40.2,
+  "runtime_seconds": 22.8,
   "caveats": [
     "Synthetic data proves the mechanism and the measurement method, not real-world accuracy.",
     "With the n-gram backend, Hindi–English pairs are matched on institution, category, shared amounts/dates/programmes and timing only; their text is not compared.",

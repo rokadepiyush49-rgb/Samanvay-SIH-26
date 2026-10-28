@@ -17,29 +17,14 @@ from app.modules.audit import chain
 from app.modules.auth.deps import current_user
 from app.modules.case import fsm
 from app.modules.case.views import list_cases
+from app.modules.institution import issues
 from app.modules.institution.resolver import InstQuery, resolve
 from app.modules.matching.normalize import normalize_name
+from app.modules.matching.union_find import UnionFind
 from app.modules.policy.roles import CASE_VIEW_ROLES, CurrentUser, Role
 from app.modules.search.query import CaseFilters
 
 router = APIRouter(prefix="/institutions", tags=["institutions"])
-
-
-class UnionFind:
-    def __init__(self) -> None:
-        self.parent: dict[str, str] = {}
-
-    def find(self, x: str) -> str:
-        self.parent.setdefault(x, x)
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
-
-    def union(self, a: str, b: str) -> None:
-        ra, rb = self.find(a), self.find(b)
-        if ra != rb:
-            self.parent[max(ra, rb)] = min(ra, rb)
 
 
 @router.get("")
@@ -183,7 +168,15 @@ def institution_360(pid: str, user: CurrentUser = Depends(current_user), db: Ses
         "siblings": [dict(s._mapping) for s in siblings],
     }
     if not user.has(*CASE_VIEW_ROLES):
-        return {**out, "cases": [], "by_unit": [], "clusters": [], "timeline": [], "restricted_matter_exists": False}
+        return {
+            **out,
+            "cases": [],
+            "by_unit": [],
+            "clusters": [],
+            "issues": [],
+            "timeline": [],
+            "restricted_matter_exists": False,
+        }
 
     cases = list_cases(db, user, CaseFilters(institution_id=str(inst.id)), limit=100)["items"]
     by_unit: dict[str, dict] = {}
@@ -207,7 +200,8 @@ def institution_360(pid: str, user: CurrentUser = Depends(current_user), db: Ses
     links = (
         db.execute(
             text(
-                "SELECT l.left_id, l.right_id, l.link_type, l.status, l.probability FROM case_link l "
+                "SELECT l.left_id, l.right_id, l.link_type, l.status, l.probability, co.code AS coordination, "
+                "co.status AS coordination_status FROM case_link l LEFT JOIN coordination co ON co.link_id = l.id "
                 "WHERE l.left_id = ANY(CAST(:ids AS uuid[])) AND l.right_id = ANY(CAST(:ids AS uuid[])) "
                 "AND l.status <> 'REJECTED' AND l.link_type <> 'L'"
             ),
@@ -253,10 +247,13 @@ def institution_360(pid: str, user: CurrentUser = Depends(current_user), db: Ses
                 "type": lk.link_type,
                 "status": lk.status,
                 "probability": round(lk.probability, 3),
+                "coordination": lk.coordination,
+                "coordination_status": lk.coordination_status,
             }
             for lk in links
         ],
         "clusters": clusters,
+        "issues": issues.for_institution(db, inst.id),
         "timeline": [
             {
                 "at": e.at.isoformat(),

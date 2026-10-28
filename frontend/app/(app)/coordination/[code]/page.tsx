@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertTriangle, CheckCircle2, Copy, FileSearch, GitMerge, Lock, MessageSquare, Send, TrendingUp, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, FileSearch, GitMerge, ListTodo, Lock, MessageSquare, Send, TrendingUp, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -260,8 +260,40 @@ function EscalateDialog({ code, open, onClose, onDone }: { code: string; open: b
   );
 }
 
+/** Ministry note p. 16: an agreed step in the room becomes a task on your own unit's case (owner: you). */
+function MessageTaskDialog({ code, m, onClose, onDone }: { code: string; m: CoordinationRoom["messages"][number]; onClose: () => void; onDone: (msg: string) => void }) {
+  const [title, setTitle] = useState(m.body.slice(0, 300));
+  const [due, setDue] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const t = await api<{ case_no: string }>(`/coordination/${code}/messages/${m.id}/task`, { json: { title, due_on: due || null } });
+      onDone(`Task added to ${t.case_no}.`);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal open onClose={onClose} size="sm" title="Make this a task" description="Added to your unit's case in this coordination, owned by you. The message stays in the room."
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button busy={busy} disabled={title.trim().length < 3} onClick={go} icon={<ListTodo size={15} aria-hidden />}>Add task</Button></>}>
+      <div className="flex flex-col gap-3">
+        <Field id="mt-title" label="Task" required><input {...fieldA11y("mt-title")} className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+        <Field id="mt-due" label="Due by"><input id="mt-due" type="date" className={cx(inputCls, "sm:w-52")} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+        <ErrorNote error={error} />
+      </div>
+    </Modal>
+  );
+}
+
 function Discussion({ c, onSent }: { c: CoordinationRoom; onSent: () => void }) {
   const { me } = useSession();
+  const toast = useToast();
+  const [taskFrom, setTaskFrom] = useState<CoordinationRoom["messages"][number] | null>(null);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -287,9 +319,16 @@ function Discussion({ c, onSent }: { c: CoordinationRoom; onSent: () => void }) 
         {c.messages.map((m) => {
           const own = m.unit === me.unit.code;
           return (
-            <li key={m.id} className={cx("max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm", own ? "self-end bg-action-soft text-action-ink" : "self-start bg-surface-2")}>
+            <li key={m.id} className={cx("max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm", own ? "self-end bg-action-soft text-action-ink" : "self-start bg-surface-2")} data-testid="room-message">
               <p className="whitespace-pre-wrap">{m.body}</p>
-              <p className="mt-1 text-[11px] opacity-75">{m.author} · {m.unit} · {fmtDateTime(m.at)}</p>
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] opacity-75">
+                <span>{m.author} · {m.unit} · {fmtDateTime(m.at)}</span>
+                {c.participant && (
+                  <button type="button" onClick={() => setTaskFrom(m)} className="inline-flex items-center gap-1 font-semibold underline-offset-2 hover:underline">
+                    <ListTodo size={12} aria-hidden />Make a task
+                  </button>
+                )}
+              </p>
             </li>
           );
         })}
@@ -302,6 +341,7 @@ function Discussion({ c, onSent }: { c: CoordinationRoom; onSent: () => void }) 
         </form>
       )}
       <div className="mt-2"><ErrorNote error={error} /></div>
+      {taskFrom && <MessageTaskDialog code={c.code} m={taskFrom} onClose={() => setTaskFrom(null)} onDone={(text) => { setTaskFrom(null); toast({ kind: "success", title: text }); }} />}
     </Card>
   );
 }

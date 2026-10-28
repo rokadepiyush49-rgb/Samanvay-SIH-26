@@ -341,6 +341,39 @@ class AssistanceRequest(Base):
     __mapper_args__ = {"version_id_col": row_version}
 
 
+class CaseTask(Base):
+    __tablename__ = "case_task"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("case_record.id"))
+    title: Mapped[str] = mapped_column(Text)
+    owner_unit_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("unit.id"))
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    due_on: Mapped[dt.date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(Text, default="OPEN")
+    depends_on: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("case_task.id"))
+    source: Mapped[str] = mapped_column(Text, default="MANUAL")
+    source_ref: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    created_at: Mapped[dt.datetime] = _now()
+    done_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    done_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    done_note: Mapped[str | None] = mapped_column(Text)
+    row_version: Mapped[int] = mapped_column(Integer, default=1)
+
+    __mapper_args__ = {"version_id_col": row_version}
+
+
+class CaseMessage(Base):
+    __tablename__ = "case_message"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("case_record.id"))
+    author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
+    unit_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("unit.id"))
+    body: Mapped[str] = mapped_column(Text)
+    body_sha256: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = _now()
+
+
 class CoordinationMessage(Base):
     __tablename__ = "coordination_message"
     id: Mapped[uuid.UUID] = _uuid_pk()
